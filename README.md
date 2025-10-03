@@ -1,6 +1,6 @@
 # Relocatable Python 3.9 for CentOS 6
 
-This project builds a relocatable Python 3.9.19 installation that runs on CentOS 6 systems (glibc 2.12) using pyenv's python-build tool.
+This project builds a relocatable Python 3.9.23 installation that runs on CentOS 6 systems (glibc 2.12) using pyenv's python-build tool.
 
 ## Features
 
@@ -20,27 +20,27 @@ This project builds a relocatable Python 3.9.19 installation that runs on CentOS
    just build
    ```
 
-   The build process takes 10-20 minutes and creates `python3.9-centos6-relocatable.tar.gz` (~50-60MB compressed, ~200MB extracted).
+   The build process takes 10-20 minutes and creates `python3.9-c6-relocatable.tar.gz` (~65MB compressed, ~200MB extracted).
 
 ### Deploy to CentOS 6
 
 1. **Copy the tarball** to your CentOS 6 system:
 
    ```bash
-   scp python3.9-centos6-relocatable.tar.gz user@centos6-server:~
+   rsync -avz --progress python3.9-c6-relocatable.tar.gz user@centos6-server:~
    ```
 
 2. **Extract it** (can be any directory):
 
    ```bash
-   tar -xzf python3.9-centos6-relocatable.tar.gz -C /opt/
+   tar -xzf python3.9-c6-relocatable.tar.gz -C /opt/
    ```
 
 3. **Use Python**:
 
    ```bash
    /opt/python3.9/bin/python3.9 --version
-   # Python 3.9.19
+   # Python 3.9.23
 
    /opt/python3.9/bin/pip3.9 install requests
    ```
@@ -80,18 +80,9 @@ can find the symbols they need at runtime.
 
 ## Customization
 
-### Change Installation Location
-
-Edit the build definition and Dockerfile to change the default `/opt/python3.9`:
-
-```bash
-# In Dockerfile, change:
-RUN python-build --verbose 3.9.19-centos6-relocatable /your/custom/path
-```
-
 ### Adjust Optimization Level
 
-In the definition file `3.9.19-centos6-relocatable`:
+In the definition file `3.9.23-centos6-relocatable`:
 
 ```bash
 # For maximum performance (slower build, ~30% faster runtime):
