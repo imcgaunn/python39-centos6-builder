@@ -94,23 +94,8 @@ RUN python-build --verbose 3.9.19-centos6-relocatable /your/custom/path
 In the definition file `3.9.19-centos6-relocatable`:
 
 ```bash
-# For faster builds (no PGO), change:
-export PYTHON_CONFIGURE_OPTS="--enable-shared --with-ensurepip=install ${PYTHON_CONFIGURE_OPTS}"
-
 # For maximum performance (slower build, ~30% faster runtime):
 export PYTHON_CONFIGURE_OPTS="--enable-shared --enable-optimizations --with-lto ${PYTHON_CONFIGURE_OPTS}"
-```
-
-### Change CPU Target
-
-In the definition file:
-
-```bash
-# For more modern CPUs (2008+), use:
-export PYTHON_CFLAGS="-march=nehalem -mtune=generic ${PYTHON_CFLAGS}"
-
-# For native CPU optimization (non-relocatable):
-export PYTHON_CFLAGS="-march=native -mtune=native ${PYTHON_CFLAGS}"
 ```
 
 ## Testing
