@@ -31,7 +31,7 @@ RUN cd /tmp && \
 
 # Stage 2 - build python
 FROM openssl_sqlite_builder AS python_builder
-RUN scl enable devtoolset-7 'python-build --verbose 3.9.19-centos6-relocatable /opt/python3.9'
+RUN scl enable devtoolset-7 'python-build --verbose 3.9.23-c6-relocatable /opt/python3.9'
 
 # Stage 3 - patch rpath for python executable and distribution libs
 FROM centosdev:python3 AS patch_to_make_relocatable
@@ -53,7 +53,13 @@ RUN /opt/very/relocated/python3.9/bin/python3.9 --version && \
     /opt/very/relocated/python3.9/bin/python3.9 -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
     /opt/very/relocated/python3.9/bin/python3.9 -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
     /opt/very/relocated/python3.9/bin/python3.9 -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import sys; print('Platform:', sys.platform)"
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import sys; print('Platform:', sys.platform)" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import ctypes; print('ctypes: OK')" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import _decimal; print('decimal: OK')" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import _hashlib; print('hashlib: OK')" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import _bz2; print('bz2: OK')" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import _lzma; print('lzma: OK')" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import _uuid; print('uuid: OK')"
 
 # Stage 4 (final) - build an archive of the distribution we built
 FROM patch_to_make_relocatable AS final_archive_env
