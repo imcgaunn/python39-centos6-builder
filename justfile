@@ -10,3 +10,5 @@ build-c6-dev-container :
 
 build-relocatable-python :
   ./build.sh
+
+build : build-relocatable-python
