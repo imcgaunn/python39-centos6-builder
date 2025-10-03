@@ -159,11 +159,11 @@ ldd /opt/python3.9/lib/python3.9/lib-dynload/_ssl.*.so
 
 | Method                         | Python Version | glibc Required | Relocatable | Extension Modules     |
 | ------------------------------ | -------------- | -------------- | ----------- | --------------------- |
-| **This Project**               | Latest         | 2.12           | ✅ Yes      | ✅ Full Support       |
+| **This Project**               | 3.9.23         | 2.12           | ✅ Yes      | ✅ Full Support       |
 | python-build-standalone (GNU)  | Latest         | 2.17           | ✅ Yes      | ✅ Full Support       |
 | python-build-standalone (musl) | Latest         | None           | ✅ Yes      | ❌ No (static binary) |
 | Official python.org            | Latest         | 2.17+          | ❌ No       | ✅ Full Support       |
-| System Package                 | 3.6            | 2.12           | ❌ No       | ✅ Full Support       |
+| System Package (rh-python36)   | 3.6.12         | 2.12           | ❌ No       | ✅ Full Support       |
 
 ## Credits
 
