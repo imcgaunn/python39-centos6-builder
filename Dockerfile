@@ -40,23 +40,28 @@ RUN cd /tmp && \
 # keep this in single quotes to avoid confusing quote expansion problems deep within
 RUN scl enable devtoolset-7 'python-build --verbose 3.9.19-centos6-relocatable /opt/python3.9'
 
-# Verify the installation
-RUN /opt/python3.9/bin/python3.9 --version && \
-    /opt/python3.9/bin/python3.9 -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-    /opt/python3.9/bin/python3.9 -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-    /opt/python3.9/bin/python3.9 -c "import sys; print('Platform:', sys.platform)"
+RUN yum install -y epel-release && yum install -y patchelf
 
-# Test relocatability by moving Python and testing again
-RUN mkdir -p /relocated && \
-    cp -a /opt/python3.9 /relocated/ && \
-    /relocated/python3.9/bin/python3.9 --version && \
-    /relocated/python3.9/bin/python3.9 -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-    /relocated/python3.9/bin/python3.9 -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-    /relocated/python3.9/bin/python3.9 -c "import sys; print('Platform:', sys.platform)" && \
-    echo "Relocatability test passed!"
+# patch rpath in built executable to make sure it can find libraries relative to itself
+RUN patchelf --set-rpath '$ORIGIN/../lib' /opt/python3.9/bin/python3.9
+RUN find /opt/python3.9/lib/python3.9/lib-dynload -name "*.so" | xargs -n1 patchelf --set-rpath '$ORIGIN/../..'
+
+# copy the installation to a different location, remove the original
+# and verify the installation still works
+RUN mkdir -p /opt/very/relocated && \
+  cp -a /opt/python3.9 /opt/very/relocated
+
+RUN rm -rf /opt/python3.9
+
+# Verify the installation
+RUN /opt/very/relocated/python3.9/bin/python3.9 --version && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
+    /opt/very/relocated/python3.9/bin/python3.9 -c "import sys; print('Platform:', sys.platform)"
 
 # Create a tarball of the Python installation
-RUN cd /opt && \
+RUN cd /opt/very/relocated && \
     tar -czf python3.9-centos6-relocatable.tar.gz python3.9 && \
     echo "Python build complete! Tarball created at /opt/python3.9-centos6-relocatable.tar.gz"
 
