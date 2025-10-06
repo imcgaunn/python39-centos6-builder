@@ -115,18 +115,5 @@ RUN /opt/very/relocated/python3.9/bin/python3.9 --version && \
 # Stage 4 (final) - build an archive of the distribution we built
 FROM patch_to_make_relocatable AS final_archive_env
 RUN cd /opt && \
-  tar -czf python3.9-c6-relocatable.tar.gz python3.9 && \
-  echo "python build complete - tar created at /opt/python3.9-c6-relocatable.tar.gz"
-
-#CMD ["/bin/bash", "-c", "echo 'Python 3.9 has been built successfully!'; \
-#     echo ''; \
-#     echo 'To extract the tarball from this container:'; \
-#     echo '  docker cp <container_id>:/opt/python3.9-centos6-relocatable.tar.gz .'; \
-#     echo ''; \
-#     echo 'To use on CentOS 6:'; \
-#     echo '  1. Extract: tar -xzf python3.9-centos6-relocatable.tar.gz -C /opt/'; \
-#     echo '  2. Run: /opt/python3.9/bin/python3.9'; \
-#     echo ''; \
-#     echo 'Python location: /opt/python3.9'; \
-#     echo 'Python version:'; \
-#     /opt/python3.9/bin/python3.9 --version"]
+  tar -czf python3.9.23-c6-relocatable.tar.gz python3.9 && \
+  echo "python build complete - tar created at /opt/python3.9.23-c6-relocatable.tar.gz"

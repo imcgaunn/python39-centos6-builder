@@ -1,5 +1,6 @@
 #!/bin/bash
-set -eou
+set -e
+set -o pipefail
 
 echo "=================================================="
 echo "Building Relocatable Python 3.9 for CentOS 6"
@@ -39,8 +40,8 @@ echo "Container ID: $CONTAINER_ID"
 echo ""
 
 # Extract the tarball from container
-echo "Extracting python3.9-centos6-relocatable.tar.gz from container"
-docker cp $CONTAINER_ID:/opt/python3.9-c6-relocatable.tar.gz .
+echo "Extracting python3.9.23-centos6-relocatable.tar.gz from container"
+docker cp $CONTAINER_ID:/opt/python3.9.23-c6-relocatable.tar.gz .
 
 if [ $? -eq 0 ]; then
   echo ""
@@ -48,12 +49,12 @@ if [ $? -eq 0 ]; then
   echo "SUCCESS! Python tarball extracted"
   echo "=================================================="
   echo ""
-  echo "File: python3.9-centos6-relocatable.tar.gz"
-  echo "Size: $(du -h python3.9-c6-relocatable.tar.gz | cut -f1)"
+  echo "File: python3.9.23-centos6-relocatable.tar.gz"
+  echo "Size: $(du -h python3.9.23-c6-relocatable.tar.gz | cut -f1)"
   echo ""
   echo "To use on CentOS 6 systems:"
   echo "  1. Copy the tarball to your CentOS 6 system"
-  echo "  2. Extract it: tar -xzf python3.9-c6-relocatable.tar.gz -C /opt/"
+  echo "  2. Extract it: tar -xzf python3.9.23-c6-relocatable.tar.gz -C /opt/"
   echo "  3. Run Python: /opt/python3.9/bin/python3.9"
   echo ""
   echo "The installation is relocatable - you can extract it to any directory."
