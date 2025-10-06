@@ -1,5 +1,56 @@
+# basic centos 6 image with python dev libraries and GCC7
+FROM centos:6 as openssl_sqlite_builder
+
+# CentOS 6 reached EOL, so we need to use vault.centos.org
+RUN sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-Base.repo && \
+    sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
+
+# Install SCL repository for newer GCC and fix its mirrors too
+RUN yum install -y centos-release-scl && \
+    rm -f /etc/yum.repos.d/CentOS-SCLo-scl*.repo && \
+    cat > /etc/yum.repos.d/CentOS-SCLo-scl.repo << 'REPOEOF'
+[centos-sclo-rh]
+name=CentOS-6 - SCLo rh
+baseurl=https://vault.centos.org/6.10/sclo/x86_64/rh/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
+
+[centos-sclo-sclo]
+name=CentOS-6 - SCLo sclo
+baseurl=https://vault.centos.org/6.10/sclo/x86_64/sclo/
+gpgcheck=1
+enabled=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
+REPOEOF
+RUN yum clean all
+
+# Install build dependencies and devtoolset-7 (GCC 7)
+# Python 3.9 requires GCC 4.8+ and CentOS 6 only has GCC 4.4 by default
+RUN yum install -y \
+    devtoolset-7-gcc \
+    devtoolset-7-gcc-c++ \
+    make \
+    git \
+    wget \
+    curl \
+    tar \
+    bzip2 \
+    xz \
+    patch \
+    perl \
+    zlib-devel \
+    bzip2-devel \
+    sqlite-devel \
+    libffi-devel \
+    readline-devel \
+    ncurses-devel \
+    gdbm-devel \
+    xz-devel \
+    tk-devel && \
+    yum clean all
+
 # Stage 1 - build openssl1.1.1 and sqlite3 to python prefix
-FROM centosdev:python3 AS openssl_sqlite_builder
 # Create directory for the Python installation
 RUN mkdir -p /opt/python3.9
 # Clone pyenv to get python-build
@@ -34,7 +85,7 @@ FROM openssl_sqlite_builder AS python_builder
 RUN scl enable devtoolset-7 'python-build --verbose 3.9.23-c6-relocatable /opt/python3.9'
 
 # Stage 3 - patch rpath for python executable and distribution libs
-FROM centosdev:python3 AS patch_to_make_relocatable
+FROM openssl_sqlite_builder AS patch_to_make_relocatable
 COPY --from=python_builder /opt/python3.9 /opt/python3.9
 RUN yum install -y epel-release && yum install -y patchelf
 # patch rpath in built executable to make sure it can find libraries relative to itself
@@ -43,7 +94,7 @@ RUN patchelf --set-rpath '$ORIGIN/../lib' /opt/python3.9/bin/python3.9
 RUN find /opt/python3.9/lib/python3.9/lib-dynload -name "*.so" | xargs -n1 patchelf --set-rpath '$ORIGIN/../..'
 
 # Stage 3 - copy the installation to a fresh centos dev container to make sure it still works 
-FROM centosdev:python3 AS test_relocatable
+FROM openssl_sqlite_builder AS test_relocatable
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python3.9 /opt/very/relocated/python3.9
