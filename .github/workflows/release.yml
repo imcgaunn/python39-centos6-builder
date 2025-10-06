@@ -31,8 +31,8 @@ jobs:
 
       - name: Verify tarball exists
         run: |
-          ls -lh python3.9-c6-relocatable.tar.gz
-          echo "Tarball size: $(du -h python3.9-c6-relocatable.tar.gz | cut -f1)"
+          ls -lh python3.9.23-c6-relocatable.tar.gz
+          echo "Tarball size: $(du -h python3.9.23-c6-relocatable.tar.gz | cut -f1)"
 
       - name: Create Release
         id: create_release
@@ -51,8 +51,8 @@ jobs:
 
             ### Installation
 
-            1. Download `python3.9-c6-relocatable.tar.gz`
-            2. Extract to your desired location: `tar -xzf python3.9-c6-relocatable.tar.gz -C /opt/`
+            1. Download `python3.9.23-c6-relocatable.tar.gz`
+            2. Extract to your desired location: `tar -xzf python3.9.23-c6-relocatable.tar.gz -C /opt/`
             3. Use Python: `/opt/python3.9/bin/python3.9 --version`
 
             ### Features
@@ -67,6 +67,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./python3.9-c6-relocatable.tar.gz
-          asset_name: python3.9-c6-relocatable.tar.gz
+          asset_path: ./python3.9.23-c6-relocatable.tar.gz
+          asset_name: python3.9.23-c6-relocatable.tar.gz
           asset_content_type: application/gzip
