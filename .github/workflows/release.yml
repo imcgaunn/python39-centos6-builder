@@ -1,9 +1,13 @@
 name: Build and Release Python Tarball
 
+permissions:
+  contents: write
+  packages: write
+  actions: write
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
 
 jobs:
