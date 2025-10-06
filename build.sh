@@ -17,7 +17,7 @@ echo "Building Docker image (this will take 10-20 minutes)..."
 echo ""
 
 # Build the Docker image
-docker buildx build --platform linux/amd64 -t python39-centos6-builder .
+docker buildx build --platform linux/amd64 -t python39-centos6-builder . --load
 
 if [ $? -ne 0 ]; then
   echo ""
