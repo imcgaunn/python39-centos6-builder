@@ -8,7 +8,7 @@ help :
 build-c6-dev-container :
   docker build --platform=linux/amd64 -f Dockerfile.centosdev -t centosdev:python3 .
 
-build-relocatable-python :
+build-relocatable-python : build-c6-dev-container
   ./build.sh
 
 build : build-relocatable-python
