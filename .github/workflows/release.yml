@@ -18,8 +18,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install just
-        uses: extractions/setup-just@v2
+      - name: Install mise
+        uses: jdx/mise-action@v2
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -27,7 +27,7 @@ jobs:
           install: true
 
       - name: Build Python tarball
-        run: just build
+        run: mise run build
 
       - name: Verify tarball exists
         run: |
