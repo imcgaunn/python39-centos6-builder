@@ -27,12 +27,12 @@ jobs:
           install: true
 
       - name: Build Python tarball
-        run: mise run build
+        run: mise run build 3.10.18-c6-relocatable
 
       - name: Verify tarball exists
         run: |
-          ls -lh python3.9.23-c6-relocatable.tar.gz
-          echo "Tarball size: $(du -h python3.9.23-c6-relocatable.tar.gz | cut -f1)"
+          ls -lh python3.10.18-c6-relocatable.tar.gz
+          echo "Tarball size: $(du -h python3.10.18-c6-relocatable.tar.gz | cut -f1)"
 
       - name: Create Release
         id: create_release
@@ -45,14 +45,14 @@ jobs:
           draft: false
           prerelease: false
           body: |
-            ## Relocatable Python 3.9.23 for CentOS 6
+            ## Relocatable Python 3.10.18 for CentOS 6
 
-            This release contains a relocatable Python 3.9.23 build compatible with CentOS 6 (glibc 2.12).
+            This release contains a relocatable Python 3.10.18 build compatible with CentOS 6 (glibc 2.12).
 
             ### Installation
 
-            1. Download `python3.9.23-c6-relocatable.tar.gz`
-            2. Extract to your desired location: `tar -xzf python3.9.23-c6-relocatable.tar.gz -C /opt/`
+            1. Download `python3.10.18-c6-relocatable.tar.gz`
+            2. Extract to your desired location: `tar -xzf python3.10.18-c6-relocatable.tar.gz -C /opt/`
             3. Use Python: `/opt/python3.9/bin/python3.9 --version`
 
             ### Features
@@ -67,6 +67,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: ./python3.9.23-c6-relocatable.tar.gz
-          asset_name: python3.9.23-c6-relocatable.tar.gz
+          asset_path: ./python3.10.18-c6-relocatable.tar.gz
+          asset_name: python3.10.18-c6-relocatable.tar.gz
           asset_content_type: application/gzip
