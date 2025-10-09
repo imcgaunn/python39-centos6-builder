@@ -1,0 +1,20 @@
+# vi: ft=bash
+# based on https://github.com/pyenv/pyenv/blob/master/plugins/python-build/share/python-build/3.10.18
+prefer_openssl11
+export PYTHON_BUILD_CONFIGURE_WITH_OPENSSL=1
+# Avoid a compilation error when linking against OpenSSL built with SSLv3 support (fixed in 3.10.0) (#2181)
+export PYTHON_CFLAGS="-DOPENSSL_NO_SSL3${PYTHON_CFLAGS:+ $PYTHON_CFLAGS}"
+
+# Configure Python for relocatability
+# --enable-shared: Build libpython as a shared library
+# --with-ensurepip=install: Install pip
+export PYTHON_CONFIGURE_OPTS="--enable-shared --with-ensurepip=install${PYTHON_CONFIGURE_OPTS:+ $PYTHON_CONFIGURE_OPTS}"
+# we built openssl/sqlite3 to this prefix earlier
+export CPPFLAGS="-I/opt/python3.10/include"
+export PKG_CONFIG_PATH="/opt/python3.10/lib/pkgconfig"
+export LD_LIBRARY_PATH="/opt/python3.10/lib"
+
+# openssl is installed separately, outside of python-build definition.
+#install_package "openssl-1.1.1u" "https://www.openssl.org/source/openssl-1.1.1u.tar.gz#e2f8d84b523eecd06c7be7626830370300fbcc15386bf5142d72758f6963ebc6" openssl
+#install_package "readline-8.1" "https://ftpmirror.gnu.org/readline/readline-8.1.tar.gz#f8ceb4ee131e3232226a17f51b164afc46cd0b9e6cef344be87c65962cb82b02" mac_readline --if has_broken_mac_readline
+install_package "Python-3.10.18" "https://www.python.org/ftp/python/3.10.18/Python-3.10.18.tar.xz#ae665bc678abd9ab6a6e1573d2481625a53719bc517e9a634ed2b9fefae3817f" standard verify_py310 copy_python_gdb ensurepip
