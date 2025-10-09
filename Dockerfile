@@ -1,5 +1,18 @@
+# Build arguments for Python version configuration
+# PYTHON_BUILD_DEFINITION should match one of the files in python-build/ directory
+# Example: 3.10.18-c6-relocatable, 3.9.23-c6-relocatable
+ARG PYTHON_BUILD_DEFINITION=3.10.18-c6-relocatable
+
 # basic centos 6 image with python dev libraries and GCC7
 FROM centos:6 as openssl_sqlite_builder
+
+# Pass the build argument to this stage
+ARG PYTHON_BUILD_DEFINITION
+
+# Extract major.minor version from the build definition (e.g., "3.10" from "3.10.18-c6-relocatable")
+RUN export PYTHON_MINOR=$(echo "${PYTHON_BUILD_DEFINITION}" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/') && \
+    echo "Building Python ${PYTHON_BUILD_DEFINITION} (Python ${PYTHON_MINOR})" && \
+    echo "${PYTHON_MINOR}" > /tmp/python_minor_version
 
 # CentOS 6 reached EOL, so we need to use vault.centos.org
 RUN sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-Base.repo && \
@@ -26,7 +39,7 @@ REPOEOF
 RUN yum clean all
 
 # Install build dependencies and devtoolset-7 (GCC 7)
-# Python 3.9 requires GCC 4.8+ and CentOS 6 only has GCC 4.4 by default
+# Python 3.10 requires GCC 4.8+ and CentOS 6 only has GCC 4.4 by default
 RUN yum install -y \
     devtoolset-7-gcc \
     devtoolset-7-gcc-c++ \
@@ -51,69 +64,102 @@ RUN yum install -y \
     yum clean all
 
 # Stage 1 - build openssl1.1.1 and sqlite3 to python prefix
-# Create directory for the Python installation
-RUN mkdir -p /opt/python3.9
+# Create directory for the Python installation using the minor version
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    mkdir -p /opt/python${PYTHON_MINOR}
+
 # Clone pyenv to get python-build
 RUN git clone --depth=1 https://github.com/pyenv/pyenv.git /opt/pyenv
+
 # Create symlink for easy access to python-build
 RUN ln -s /opt/pyenv/plugins/python-build/bin/python-build /usr/local/bin/python-build
+
 # Copy our custom build definitions
 COPY python-build/* /opt/pyenv/plugins/python-build/share/python-build/
-# Build SQLite 3 (CentOS 6 has 3.6.20, but Python 3.9 needs 3.7.15+)
-# build to /opt/python3.9 prefix
-RUN cd /tmp && \
+
+# Patch the build definition to use the correct prefix for this Python version
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    BUILD_DEF="/opt/pyenv/plugins/python-build/share/python-build/${PYTHON_BUILD_DEFINITION}" && \
+    if [ -f "${BUILD_DEF}" ]; then \
+        sed -i "s|/opt/python[0-9.]*|/opt/python${PYTHON_MINOR}|g" "${BUILD_DEF}"; \
+        echo "Patched ${PYTHON_BUILD_DEFINITION} to use /opt/python${PYTHON_MINOR}"; \
+    else \
+        echo "ERROR: Build definition ${PYTHON_BUILD_DEFINITION} not found!"; \
+        exit 1; \
+    fi
+
+# Build SQLite 3 (CentOS 6 has 3.6.20, but Python 3.10 needs 3.7.15+)
+# build to the appropriate prefix
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    cd /tmp && \
     wget https://www.sqlite.org/2024/sqlite-autoconf-3450200.tar.gz && \
     tar xzf sqlite-autoconf-3450200.tar.gz && \
     cd sqlite-autoconf-3450200 && \
-    scl enable devtoolset-7 "./configure --prefix=/opt/python3.9" && \
+    scl enable devtoolset-7 "./configure --prefix=/opt/python${PYTHON_MINOR}" && \
     scl enable devtoolset-7 "make -j$(nproc)" && \
     scl enable devtoolset-7 "make install" && \
     cd /tmp && rm -rf sqlite-autoconf-3450200*
-# Build OpenSSL 1.1.1w first (Python 3.9 requires OpenSSL 1.1.1+, CentOS 6 has 1.0.x)
-# build to /opt/python3.9 prefix
-RUN cd /tmp && \
+
+# Build OpenSSL 1.1.1w first (Python 3.10 requires OpenSSL 1.1.1+, CentOS 6 has 1.0.x)
+# build to the appropriate prefix
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    cd /tmp && \
     wget https://www.openssl.org/source/openssl-1.1.1w.tar.gz && \
     tar xzf openssl-1.1.1w.tar.gz && \
     cd openssl-1.1.1w && \
-    scl enable devtoolset-7 "./config --prefix=/opt/python3.9 --openssldir=/opt/python3.9/ssl shared zlib" && \
+    scl enable devtoolset-7 "./config --prefix=/opt/python${PYTHON_MINOR} --openssldir=/opt/python${PYTHON_MINOR}/ssl shared zlib" && \
     scl enable devtoolset-7 "make -j$(nproc)" && \
     scl enable devtoolset-7 "make install_sw" && \
     cd /tmp && rm -rf openssl-1.1.1w*
 
 # Stage 2 - build python
 FROM openssl_sqlite_builder AS python_builder
-RUN scl enable devtoolset-7 'python-build --verbose 3.9.23-c6-relocatable /opt/python3.9'
+ARG PYTHON_BUILD_DEFINITION
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    scl enable devtoolset-7 "python-build --verbose ${PYTHON_BUILD_DEFINITION} /opt/python${PYTHON_MINOR}"
 
 # Stage 3 - patch rpath for python executable and distribution libs
 FROM openssl_sqlite_builder AS patch_to_make_relocatable
-COPY --from=python_builder /opt/python3.9 /opt/python3.9
+ARG PYTHON_BUILD_DEFINITION
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    echo "Python minor version: ${PYTHON_MINOR}"
+# TODO: figure out how to not need this stupid part
+COPY --from=python_builder /opt/python3.10 /opt/python3.10
 RUN yum install -y epel-release && yum install -y patchelf
+#
 # patch rpath in built executable to make sure it can find libraries relative to itself
-RUN patchelf --set-rpath '$ORIGIN/../lib' /opt/python3.9/bin/python3.9
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    patchelf --set-rpath '$ORIGIN/../lib' /opt/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR}
 # do the same thing for *.so files in lib-dynload, but with the correct relative path
-RUN find /opt/python3.9/lib/python3.9/lib-dynload -name "*.so" | xargs -n1 patchelf --set-rpath '$ORIGIN/../..'
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    find /opt/python${PYTHON_MINOR}/lib/python${PYTHON_MINOR}/lib-dynload -name "*.so" | xargs -n1 patchelf --set-rpath '$ORIGIN/../..'
 
-# Stage 3 - copy the installation to a fresh centos dev container to make sure it still works 
+# Stage 4 - copy the installation to a fresh centos dev container to make sure it still works
 FROM openssl_sqlite_builder AS test_relocatable
+ARG PYTHON_BUILD_DEFINITION
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
-COPY --from=patch_to_make_relocatable /opt/python3.9 /opt/very/relocated/python3.9
+COPY --from=patch_to_make_relocatable /opt/python* /opt/very/relocated/
+
 # ensure that common libs with dynamically loaded dependencies
 # are exercised to verify linker runtime path changes made to executable.
-RUN /opt/very/relocated/python3.9/bin/python3.9 --version && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import sys; print('Platform:', sys.platform)" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import ctypes; print('ctypes: OK')" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import _decimal; print('decimal: OK')" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import _hashlib; print('hashlib: OK')" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import _bz2; print('bz2: OK')" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import _lzma; print('lzma: OK')" && \
-    /opt/very/relocated/python3.9/bin/python3.9 -c "import _uuid; print('uuid: OK')"
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} --version && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import sys; print('Platform:', sys.platform)" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import ctypes; print('ctypes: OK')" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _decimal; print('decimal: OK')" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _hashlib; print('hashlib: OK')" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _bz2; print('bz2: OK')" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _lzma; print('lzma: OK')" && \
+    /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _uuid; print('uuid: OK')"
 
 # Stage 4 (final) - build an archive of the distribution we built
 FROM patch_to_make_relocatable AS final_archive_env
-RUN cd /opt && \
-  tar -czf python3.9.23-c6-relocatable.tar.gz python3.9 && \
-  echo "python build complete - tar created at /opt/python3.9.23-c6-relocatable.tar.gz"
+ARG PYTHON_BUILD_DEFINITION
+RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
+    cd /opt && \
+    tar -czf ${PYTHON_BUILD_DEFINITION}.tar.gz python${PYTHON_MINOR} && \
+    echo "python build complete - tar created at /opt/${PYTHON_BUILD_DEFINITION}.tar.gz"
