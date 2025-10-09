@@ -77,17 +77,6 @@ RUN ln -s /opt/pyenv/plugins/python-build/bin/python-build /usr/local/bin/python
 # Copy our custom build definitions
 COPY python-build/* /opt/pyenv/plugins/python-build/share/python-build/
 
-# Patch the build definition to use the correct prefix for this Python version
-RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
-    BUILD_DEF="/opt/pyenv/plugins/python-build/share/python-build/${PYTHON_BUILD_DEFINITION}" && \
-    if [ -f "${BUILD_DEF}" ]; then \
-        sed -i "s|/opt/python[0-9.]*|/opt/python${PYTHON_MINOR}|g" "${BUILD_DEF}"; \
-        echo "Patched ${PYTHON_BUILD_DEFINITION} to use /opt/python${PYTHON_MINOR}"; \
-    else \
-        echo "ERROR: Build definition ${PYTHON_BUILD_DEFINITION} not found!"; \
-        exit 1; \
-    fi
-
 # Build SQLite 3 (CentOS 6 has 3.6.20, but Python 3.10 needs 3.7.15+)
 # build to the appropriate prefix
 RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \

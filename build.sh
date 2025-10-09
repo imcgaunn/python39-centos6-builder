@@ -33,9 +33,9 @@ fi
 echo "Building Docker image (this will take 10-20 minutes)..."
 echo ""
 
-# Build the Docker image using Dockerfile.generic
+# Build the Docker image using Dockerfile
 docker buildx build --platform linux/amd64 \
-  -f Dockerfile.generic \
+  -f Dockerfile \
   --build-arg PYTHON_BUILD_DEFINITION="${PYTHON_BUILD_DEFINITION}" \
   -t "python-centos6-builder:${PYTHON_BUILD_DEFINITION}" \
   . --load
