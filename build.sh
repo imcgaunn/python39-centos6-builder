@@ -60,7 +60,7 @@ echo "Container ID: $CONTAINER_ID"
 echo ""
 
 # Extract the tarball from container
-TARBALL_NAME="${PYTHON_BUILD_DEFINITION}.tar.gz"
+TARBALL_NAME="python${PYTHON_BUILD_DEFINITION}.tar.gz"
 echo "Extracting ${TARBALL_NAME} from container"
 docker cp "$CONTAINER_ID:/opt/${TARBALL_NAME}" .
 
