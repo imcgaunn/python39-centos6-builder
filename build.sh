@@ -2,10 +2,10 @@
 set -e
 set -o pipefail
 
-# Default to 3.10.18-c6-relocatable if not specified
-PYTHON_BUILD_DEFINITION="${1:-3.10.18-c6-relocatable}"
+# Default to 3.10.19-c6-relocatable if not specified
+PYTHON_BUILD_DEFINITION="${1:-3.10.19-c6-relocatable}"
 
-# Extract major.minor version (e.g., "3.10" from "3.10.18-c6-relocatable")
+# Extract major.minor version (e.g., "3.10" from "3.10.19-c6-relocatable")
 PYTHON_MINOR=$(echo "${PYTHON_BUILD_DEFINITION}" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')
 
 echo "=================================================="
