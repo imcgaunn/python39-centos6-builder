@@ -1,7 +1,7 @@
 # Build arguments for Python version configuration
 # PYTHON_BUILD_DEFINITION should match one of the files in python-build/ directory
 # Example: 3.10.18-c6-relocatable, 3.9.23-c6-relocatable
-ARG PYTHON_BUILD_DEFINITION=3.10.18-c6-relocatable
+ARG PYTHON_BUILD_DEFINITION=3.10.20-c6-relocatable
 
 # basic centos 6 image with python dev libraries and GCC7
 FROM centos:6 as openssl_sqlite_builder
@@ -145,9 +145,11 @@ RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
   /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _lzma; print('lzma: OK')" && \
   /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _uuid; print('uuid: OK')"
 
-# Stage 4 (final) - build an archive of the distribution we built
+# Stage 4 (final) - build an archive and RPM of the distribution we built
 FROM patch_to_make_relocatable AS final_archive_env
 ARG PYTHON_BUILD_DEFINITION
+
+# Build the tarball
 RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
   cd /opt && \
   tar -czf python${PYTHON_BUILD_DEFINITION}.tar.gz python${PYTHON_MINOR} && \

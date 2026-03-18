@@ -2,8 +2,7 @@
 set -e
 set -o pipefail
 
-# Default to 3.10.19-c6-relocatable if not specified
-PYTHON_BUILD_DEFINITION="${1:-3.10.19-c6-relocatable}"
+PYTHON_BUILD_DEFINITION="${1:-3.10.20-c6-relocatable}"
 
 # Extract major.minor version (e.g., "3.10" from "3.10.19-c6-relocatable")
 PYTHON_MINOR=$(echo "${PYTHON_BUILD_DEFINITION}" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')
@@ -84,6 +83,32 @@ else
   echo "Error: Failed to extract tarball from container"
   docker rm $CONTAINER_ID
   exit 1
+fi
+
+# Extract RPM(s) from container
+echo "Looking for RPM(s) in container..."
+RPM_PATHS=$(docker run --rm "python-centos6-builder:${PYTHON_BUILD_DEFINITION}" \
+  sh -c 'ls /opt/*.rpm 2>/dev/null' 2>/dev/null || true)
+
+if [ -n "$RPM_PATHS" ]; then
+  for RPM_PATH in $RPM_PATHS; do
+    RPM_BASE=$(basename "$RPM_PATH")
+    docker cp "$CONTAINER_ID:/opt/${RPM_BASE}" "./${RPM_BASE}"
+    echo ""
+    echo "=================================================="
+    echo "SUCCESS! RPM extracted"
+    echo "=================================================="
+    echo ""
+    echo "File: ${RPM_BASE}"
+    echo "Size: $(du -h "${RPM_BASE}" | cut -f1)"
+    echo ""
+    echo "To install on CentOS 6 systems:"
+    echo "  rpm -ivh ${RPM_BASE}"
+    echo "  (installs Python to /opt/iss/python${PYTHON_MINOR})"
+    echo ""
+  done
+else
+  echo "Warning: No RPM files found in container (RPM build may have failed)"
 fi
 
 # Clean up the container
