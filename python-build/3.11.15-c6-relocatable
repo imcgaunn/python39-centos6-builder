@@ -1,0 +1,16 @@
+# vi: ft=bash
+# based on https://github.com/pyenv/pyenv/blob/master/plugins/python-build/share/python-build/3.11.15
+prefer_openssl11
+export PYTHON_BUILD_CONFIGURE_WITH_OPENSSL=1
+export PYTHON_BUILD_TCLTK_USE_PKGCONFIG=1
+
+# Configure Python for relocatability
+# --enable-shared: Build libpython as a shared library
+# --with-ensurepip=install: Install pip
+export PYTHON_CONFIGURE_OPTS="--enable-shared --with-ensurepip=install${PYTHON_CONFIGURE_OPTS:+ $PYTHON_CONFIGURE_OPTS}"
+# we built openssl/sqlite3 to this prefix earlier
+export CPPFLAGS="-I/opt/python3.11/include"
+export PKG_CONFIG_PATH="/opt/python3.11/lib/pkgconfig"
+export LD_LIBRARY_PATH="/opt/python3.11/lib"
+
+install_package "Python-3.11.15" "https://www.python.org/ftp/python/3.11.15/Python-3.11.15.tar.xz#272179ddd9a2e41a0fc8e42e33dfbdca0b3711aa5abf372d3f2d51543d09b625" standard verify_py311 copy_python_gdb ensurepip

@@ -1,7 +1,7 @@
 # Build arguments for Python version configuration
 # PYTHON_BUILD_DEFINITION should match one of the files in python-build/ directory
 # Example: 3.10.18-c6-relocatable, 3.9.23-c6-relocatable
-ARG PYTHON_BUILD_DEFINITION=3.10.20-c6-relocatable
+ARG PYTHON_BUILD_DEFINITION=3.11.15-c6-relocatable
 
 # basic centos 6 image with python dev libraries and GCC7
 FROM centos:6 as openssl_sqlite_builder
@@ -77,7 +77,7 @@ RUN ln -s /opt/pyenv/plugins/python-build/bin/python-build /usr/local/bin/python
 # Copy our custom build definitions
 COPY python-build/* /opt/pyenv/plugins/python-build/share/python-build/
 
-# Build SQLite 3 (CentOS 6 has 3.6.20, but Python 3.10 needs 3.7.15+)
+# Build SQLite 3 (CentOS 6 has 3.6.20, but Python 3.10+ needs 3.7.15+)
 # build to the appropriate prefix
 RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
   cd /tmp && \
@@ -113,7 +113,7 @@ ARG PYTHON_BUILD_DEFINITION
 RUN export PYTHON_MINOR=$(cat /tmp/python_minor_version) && \
   echo "Python minor version: ${PYTHON_MINOR}"
 # TODO: figure out how to not need this stupid part
-COPY --from=python_builder /opt/python3.10 /opt/python3.10
+COPY --from=python_builder /opt/python${PYTHON_MINOR} /opt/python${PYTHON_MINOR}
 RUN yum install -y epel-release && yum install -y patchelf
 #
 # patch rpath in built executable to make sure it can find libraries relative to itself
