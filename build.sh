@@ -36,6 +36,7 @@ echo ""
 docker buildx build --platform linux/amd64 \
   -f Dockerfile \
   --build-arg PYTHON_BUILD_DEFINITION="${PYTHON_BUILD_DEFINITION}" \
+  --build-arg PYTHON_MINOR="${PYTHON_MINOR}" \
   -t "python-centos6-builder:${PYTHON_BUILD_DEFINITION}" \
   . --load
 
