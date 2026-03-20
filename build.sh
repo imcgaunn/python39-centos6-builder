@@ -3,6 +3,9 @@ set -e
 set -o pipefail
 
 PYTHON_BUILD_DEFINITION="${1:-3.11.15-c6-relocatable}"
+DOCKER_REGISTRY="harbor.homelab.mcgaunn.com/library"
+DOCKER_REPO="relocatable-python"
+DOCKER_TAG="${PYTHON_BUILD_DEFINITION}"
 
 # Extract major.minor version (e.g., "3.10" from "3.10.19-c6-relocatable")
 PYTHON_MINOR=$(echo "${PYTHON_BUILD_DEFINITION}" | sed -E 's/^([0-9]+\.[0-9]+).*/\1/')
@@ -32,12 +35,13 @@ fi
 echo "Building Docker image (this will take 10-20 minutes)..."
 echo ""
 
+#
 # Build the Docker image using Dockerfile
 docker buildx build --platform linux/amd64 \
   -f Dockerfile \
   --build-arg PYTHON_BUILD_DEFINITION="${PYTHON_BUILD_DEFINITION}" \
   --build-arg PYTHON_MINOR="${PYTHON_MINOR}" \
-  -t "python-centos6-builder:${PYTHON_BUILD_DEFINITION}" \
+  -t "${DOCKER_REGISTRY}/${DOCKER_REPO}:${PYTHON_BUILD_DEFINITION}" \
   . --load
 
 if [ $? -ne 0 ]; then
@@ -54,7 +58,7 @@ echo ""
 
 # Initialize a container from the image
 echo "Creating container to extract Python tarball..."
-CONTAINER_ID=$(docker create "python-centos6-builder:${PYTHON_BUILD_DEFINITION}")
+CONTAINER_ID=$(docker create "${DOCKER_REGISTRY}/${DOCKER_REPO}:${PYTHON_BUILD_DEFINITION}")
 
 echo "Container ID: $CONTAINER_ID"
 echo ""
@@ -92,6 +96,6 @@ docker rm $CONTAINER_ID >/dev/null
 
 echo ""
 echo "To remove the Docker image (saves ~2GB disk space):"
-echo "  docker rmi python-centos6-builder:${PYTHON_BUILD_DEFINITION}"
+echo "  docker rmi ${DOCKER_REGISTRY}/${DOCKER_REPO}:${PYTHON_BUILD_DEFINITION}"
 echo ""
 echo "Done!"
