@@ -1,0 +1,71 @@
+name: Build and Release Python Tarball (Forgejo)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+env:
+  PYTHON_BUILD_DEFINITION: 3.10.19-c6-relocatable
+  IMAGE_REF: registry:5000/py-c6-builder
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image with kaniko
+        uses: docker://gcr.io/kaniko-project/executor:debug
+        with:
+          args: >-
+            --context=dir:///github/workspace
+            --dockerfile=Dockerfile
+            --destination=${{ env.IMAGE_REF }}:${{ github.sha }}
+            --build-arg=PYTHON_BUILD_DEFINITION=${{ env.PYTHON_BUILD_DEFINITION }}
+            --insecure
+            --skip-tls-verify
+            --single-snapshot
+            --use-new-run
+
+      - name: Export flattened image with crane
+        uses: docker://gcr.io/go-containerregistry/crane:debug
+        with:
+          args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }} /github/workspace/image.tar
+
+      - name: Extract python tarball from image
+        run: |
+          set -euo pipefail
+          TARBALL="python${PYTHON_BUILD_DEFINITION}.tar.gz"
+          tar -xf image.tar "opt/${TARBALL}"
+          mv "opt/${TARBALL}" .
+          rm -rf opt image.tar
+          ls -lh "${TARBALL}"
+
+      - name: Create release and upload asset
+        env:
+          FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
+          API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          apt-get update -qq
+          apt-get install -y -qq curl jq
+          TARBALL="python${PYTHON_BUILD_DEFINITION}.tar.gz"
+          BODY=$(jq -n --arg tag "$TAG" --arg name "Release $TAG" \
+            '{tag_name:$tag, name:$name, draft:false, prerelease:false,
+              body:"Relocatable Python \($tag) for CentOS 6 (glibc 2.12). Includes OpenSSL 1.1.1, SQLite 3.45, full stdlib, pip. Extract anywhere; binaries use $ORIGIN-relative rpath."}')
+          RELEASE_ID=$(curl -fsSL -X POST "$API/releases" \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d "$BODY" | jq -r '.id')
+          curl -fsSL -X POST "$API/releases/$RELEASE_ID/assets?name=$TARBALL" \
+            -H "Authorization: token $FORGEJO_TOKEN" \
+            -F "attachment=@${TARBALL}"
