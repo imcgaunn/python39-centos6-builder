@@ -167,10 +167,16 @@ FROM python_with_bundled_system_libs AS patch_to_make_relocatable
 ARG PYTHON_MINOR
 RUN yum install -y epel-release && yum install -y patchelf
 COPY scripts/relocate.py /usr/local/bin/relocate.py
+# LD_LIBRARY_PATH is scoped to just the python invocation, NOT the `sh`
+# that drives phase 2. /bin/sh on CentOS 6 NEEDs libtinfo.so.5; if
+# LD_LIBRARY_PATH points at ${PREFIX}/lib (where we just bundled it)
+# sh maps the bundled libtinfo, phase 2's patchelf modifies that file
+# in place, and sh segfaults on exit running destructors against the
+# now-stale mapping. Letting sh resolve libtinfo from /usr/lib64
+# avoids the conflict.
 RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
-  export LD_LIBRARY_PATH="${PREFIX}/lib" && \
-  ${PREFIX}/bin/python${PYTHON_MINOR} /usr/local/bin/relocate.py \
-    ${PREFIX} ${PYTHON_MINOR} /tmp/relocate-patches.sh && \
+  LD_LIBRARY_PATH="${PREFIX}/lib" ${PREFIX}/bin/python${PYTHON_MINOR} \
+    /usr/local/bin/relocate.py ${PREFIX} ${PYTHON_MINOR} /tmp/relocate-patches.sh && \
   sh /tmp/relocate-patches.sh && \
   rm -f /tmp/relocate-patches.sh
 
