@@ -1,167 +1,130 @@
-# Relocatable Python 3.9 for CentOS 6
+# Relocatable Python for CentOS 6
 
-This project builds a relocatable Python 3.9.23 installation that runs on CentOS 6 systems (glibc 2.12) using pyenv's python-build tool.
+This project produces a relocatable CPython tarball that runs on CentOS 6
+(glibc 2.12) for any Python version supported by the pinned upstream
+[pyenv `python-build`](https://github.com/pyenv/pyenv/tree/master/plugins/python-build/share/python-build).
 
 ## Features
 
-- ✅ **CentOS 6 Compatible**: Built against glibc 2.12
-- ✅ **Relocatable**: Can be extracted to any directory on the target system
-- ✅ **Complete**: Includes OpenSSL 1.1.1, all standard library modules, and pip
+- CentOS 6 compatible (built against glibc 2.12)
+- Relocatable: extract the tarball to any directory
+- Bundled OpenSSL 1.1.1, SQLite, full standard library, and pip
+- Parametric on Python version: pass `3.10.20` (or any other patch release
+  with a definition in upstream pyenv) and the build does the rest
 
-## Quick Start
+## Quick start
 
-### Build the Python Distribution
-
-1. **Ensure Docker is installed** on your build machine
-
-2. **Run the build recipe**:
-
-   ```bash
-   just build
-   ```
-
-   The build process takes 10-20 minutes and creates `python3.9-c6-relocatable.tar.gz` (~65MB compressed, ~200MB extracted).
-
-### Deploy to CentOS 6
-
-1. **Copy the tarball** to your CentOS 6 system:
-
-   ```bash
-   rsync -avz --progress python3.9-c6-relocatable.tar.gz user@centos6-server:~
-   ```
-
-2. **Extract it** (can be any directory):
-
-   ```bash
-   tar -xzf python3.9-c6-relocatable.tar.gz -C /opt/
-   ```
-
-3. **Use Python**:
-
-   ```bash
-   /opt/python3.9/bin/python3.9 --version
-   # Python 3.9.23
-
-   /opt/python3.9/bin/pip3.9 install requests
-   ```
-
-4. **Optional**: Add to PATH:
-
-   ```bash
-   export PATH="/opt/python3.9/bin:$PATH"
-   python3.9 --version
-   ```
-
-## How It Works
-
-### Key Technologies
-
-1. **pyenv's python-build**: Handles downloading, patching, and building Python
-2. **Custom build definition**: Configures Python for CentOS 6 compatibility and relocatability
-3. **Docker with CentOS 6**: Ensures the build happens against glibc 2.12
-4. **Devtoolset-7**: Provides GCC 7 (Python 3.9 requires GCC 4.8+, CentOS 6 has 4.4)
-
-### Relocatability Strategy
-
-The python executable has been patched to include `$ORIGIN` in its RPATH. This ensures that the Python binary will look for
-`libpython3.9.so` and other dependencies relative to the executable location:
+The build needs Docker and the Python version you want to build:
 
 ```bash
-LDFLAGS="-Wl,-rpath,\$ORIGIN/../lib"
+./build.sh 3.10.20
+# or via mise:
+mise run build 3.10.20
 ```
 
-This means:
+The build runs entirely in the container and takes 10-20 minutes. It
+produces `python<VERSION>-c6-relocatable.tar.gz` in the working directory.
 
-- Binary at `/opt/python3.9/bin/python3.9` looks for libraries in `/opt/python3.9/lib`
-- Binary at `/home/user/py39/bin/python3.9` looks for libraries in `/home/user/py39/lib`
+## How version selection works
 
-The library dependencies that are built with python have also been patched with this strategy to ensure that they
-can find the symbols they need at runtime.
+The `python-build/` directory of hand-written definitions is gone. At image
+build time the Dockerfile:
 
-## Customization
+1. Clones pyenv at the pinned tag (`PYENV_REF` build arg, default `v2.6.28`).
+2. Looks up the upstream definition file for `PYTHON_VERSION` inside that
+   clone (e.g. `plugins/python-build/share/python-build/3.10.20`). If it's
+   missing, the build fails with a clear error.
+3. Generates `<VERSION>-c6-relocatable` by prepending a CentOS-6 preamble
+   (env vars pointing at `/opt/python<MINOR>` for the OpenSSL 1.1.1 and
+   SQLite installs we build into that prefix, plus `--enable-shared` and
+   `prefer_openssl11`) to the upstream file.
+4. Hands the generated definition to `python-build`.
 
-### Adjust Optimization Level
+To support a newer Python release that the pinned pyenv doesn't yet know
+about, bump `PYENV_REF` to a tag that ships its definition.
 
-In the definition file `3.9.23-centos6-relocatable`:
+## Deploy to CentOS 6
 
 ```bash
-# For maximum performance (slower build, ~30% faster runtime):
-export PYTHON_CONFIGURE_OPTS="--enable-shared --enable-optimizations --with-lto ${PYTHON_CONFIGURE_OPTS}"
+rsync -avz python3.10.20-c6-relocatable.tar.gz user@centos6-server:~
+ssh user@centos6-server tar -xzf python3.10.20-c6-relocatable.tar.gz -C /opt/
+ssh user@centos6-server /opt/python3.10/bin/python3.10 --version
 ```
 
-## Testing
+The tarball top-level directory is `python<MINOR>` (e.g. `python3.10`), so
+multiple minor versions can coexist under `/opt/`.
 
-Verify the build on your CentOS 6 system:
+## Releases
 
-```bash
-# Check Python version
-/opt/python3.9/bin/python3.9 --version
+Pushing a tag of the form `vX.Y.Z` triggers `.github/workflows/release.yml`,
+which:
 
-# Check glibc dependency
-ldd /opt/python3.9/bin/python3.9 | grep libc
+- Strips the leading `v` and uses `X.Y.Z` as `PYTHON_VERSION`.
+- Builds the tarball and attaches it to a GitHub release named after the tag.
 
-# Check OpenSSL version
-/opt/python3.9/bin/python3.9 -c "import ssl; print(ssl.OPENSSL_VERSION)"
+For ad-hoc builds, run the workflow manually (`workflow_dispatch`) and pass
+the desired version. The artifact is uploaded but no release is created.
 
-# Test relocatability
-cp -r /opt/python3.9 /tmp/python3.9-test
-/tmp/python3.9-test/bin/python3.9 --version
-```
+## Relocatability
 
-## Troubleshooting
-
-### "version 'GLIBC_2.14' not found"
-
-Your runtime system has an older glibc than expected. Make sure you're building inside the CentOS 6 Docker container, not on a newer system.
-
-### "cannot open shared object file"
-
-The RPATH may not be set correctly. Verify with:
+The `python<MINOR>` executable is patched with `$ORIGIN/../lib` in its
+RPATH; extension modules under `lib-dynload/` get `$ORIGIN/../..`. Whatever
+directory you extract the tarball to, the binary finds its libraries
+relative to itself.
 
 ```bash
-readelf -d /opt/python3.9/bin/python3.9 | grep RPATH
+readelf -d /opt/python3.10/bin/python3.10 | grep RPATH
 # Should show: $ORIGIN/../lib
 ```
 
-### Build fails with "gcc: command not found"
+## Build pipeline
 
-Make sure devtoolset-7 is enabled:
+The Dockerfile has four stages, all chained from a CentOS 6 + devtoolset-7
+base:
+
+1. `openssl_sqlite_builder` — installs build deps, clones pinned pyenv,
+   generates the relocatable build definition, builds OpenSSL 1.1.1w and
+   SQLite into `/opt/python<MINOR>`.
+2. `python_builder` — runs `python-build` against the generated definition.
+3. `patch_to_make_relocatable` — installs patchelf and rewrites RPATHs.
+4. `test_relocatable` — copies the patched install to a fresh path and
+   imports `ssl`, `sqlite3`, `zlib`, `ctypes`, `_decimal`, `_hashlib`,
+   `_bz2`, `_lzma`, `_uuid` to verify the rpath patching survived
+   relocation. The final stage pulls a marker file from this stage so it's
+   forced to run; failures here fail the whole build.
+5. `final_archive_env` — tars `/opt/python<MINOR>` into the release archive.
+
+## Troubleshooting
+
+### `pyenv ${PYENV_REF} has no definition for Python ${VERSION}`
+
+The pinned pyenv tag doesn't ship a definition for that patch release. Bump
+`PYENV_REF` (or pass `--build-arg PYENV_REF=...`) to a tag that does.
+
+### `version 'GLIBC_2.14' not found` on the target
+
+Something other than the CentOS 6 builder produced the tarball. Re-run
+`./build.sh` — the build must happen inside the container.
+
+### `cannot open shared object file`
+
+RPATH patching didn't stick. Verify with:
 
 ```bash
-scl enable devtoolset-7 bash
-gcc --version  # Should show GCC 7.x
+readelf -d /opt/python<MINOR>/bin/python<MINOR> | grep RPATH
 ```
 
-### Python crashes on import
+## Comparison with alternatives
 
-Check for missing dependencies:
-
-```bash
-ldd /opt/python3.9/lib/python3.9/lib-dynload/_ssl.*.so
-```
-
-## Performance Notes
-
-- **PGO Build**: Profile-Guided Optimization provides ~30% performance improvement but adds 10-15 minutes to build time
-- **Memory Usage**: Building requires ~2GB RAM. On systems with less memory, disable PGO
-- **Disk Space**: Build requires ~3GB temporary space in `/tmp`
-
-## Comparison with Alternatives
-
-| Method                         | Python Version | glibc Required | Relocatable | Extension Modules     |
-| ------------------------------ | -------------- | -------------- | ----------- | --------------------- |
-| **This Project**               | 3.9.23         | 2.12           | ✅ Yes      | ✅ Full Support       |
-| python-build-standalone (GNU)  | Latest         | 2.17           | ✅ Yes      | ✅ Full Support       |
-| python-build-standalone (musl) | Latest         | None           | ✅ Yes      | ❌ No (static binary) |
-| Official python.org            | Latest         | 2.17+          | ❌ No       | ✅ Full Support       |
-| System Package (rh-python36)   | 3.6.12         | 2.12           | ❌ No       | ✅ Full Support       |
+| Method                         | Python version  | glibc required | Relocatable | Extension modules    |
+| ------------------------------ | --------------- | -------------- | ----------- | -------------------- |
+| **This project**               | any pyenv ships | 2.12           | yes         | full                 |
+| python-build-standalone (GNU)  | latest          | 2.17           | yes         | full                 |
+| python-build-standalone (musl) | latest          | none           | yes         | no (static binary)   |
+| Official python.org            | latest          | 2.17+          | no          | full                 |
+| System package (rh-python36)   | 3.6.12          | 2.12           | no          | full                 |
 
 ## Credits
 
 - Built using [pyenv/python-build](https://github.com/pyenv/pyenv)
 - Inspired by [python-build-standalone](https://github.com/astral-sh/python-build-standalone)
-
-## Resources
-
-- [Python Build Standalone Documentation](https://gregoryszorc.com/docs/python-build-standalone/main/)
-- [pyenv python-build README](https://github.com/pyenv/pyenv/blob/master/plugins/python-build/README.md)
