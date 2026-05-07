@@ -121,6 +121,17 @@ RUN cd /tmp && \
   scl enable devtoolset-7 "make install_sw" && \
   cd /tmp && rm -rf openssl-1.1.1w*
 
+# Pull build-context files into the image once, in this first stage.
+# Later stages (python_with_packages, patch_to_make_relocatable) inherit
+# them through the FROM chain rather than COPYing from context themselves.
+# Why: kaniko reinitializes its rootfs between stages, and when the build
+# context is bind-mounted into that rootfs (as Forgejo Actions does at
+# /github/workspace), the reset can leave kaniko unable to lstat context
+# files in subsequent stages even when they were readable in the first.
+RUN mkdir -p /build
+COPY requirements.txt /build/requirements.txt
+COPY scripts/relocate.py /usr/local/bin/relocate.py
+
 # Stage 2 - build python using the generated definition
 FROM openssl_sqlite_builder AS python_builder
 ARG PYTHON_VERSION
@@ -131,16 +142,14 @@ RUN scl enable devtoolset-7 "python-build --verbose ${PYTHON_VERSION}-c6-relocat
 # Runs before patchelf because we want the rpath-rewrite step to also fix
 # any C extensions pip builds from source against /opt/python${MINOR}/lib.
 # LD_LIBRARY_PATH is set explicitly because the binary's RPATH hasn't been
-# rewritten yet at this point.
+# rewritten yet at this point. requirements.txt was COPYed in stage 0.
 FROM python_builder AS python_with_packages
 ARG PYTHON_MINOR
-COPY requirements.txt /tmp/requirements.txt
 RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   export LD_LIBRARY_PATH="${PREFIX}/lib" && \
   scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir --upgrade pip" && \
-  scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r /tmp/requirements.txt" && \
-  find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
-  rm -f /tmp/requirements.txt
+  scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r /build/requirements.txt" && \
+  find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 # Stage 4 - rewrite RPATHs and shebangs so the install can be relocated.
 # Done in two phases because patchelf can't modify a file that's mapped
@@ -155,7 +164,6 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
 FROM python_with_packages AS patch_to_make_relocatable
 ARG PYTHON_MINOR
 RUN yum install -y epel-release && yum install -y patchelf
-COPY scripts/relocate.py /usr/local/bin/relocate.py
 RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   export LD_LIBRARY_PATH="${PREFIX}/lib" && \
   ${PREFIX}/bin/python${PYTHON_MINOR} /usr/local/bin/relocate.py \
