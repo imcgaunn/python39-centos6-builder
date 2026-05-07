@@ -127,33 +127,55 @@ ARG PYTHON_VERSION
 ARG PYTHON_MINOR
 RUN scl enable devtoolset-7 "python-build --verbose ${PYTHON_VERSION}-c6-relocatable /opt/python${PYTHON_MINOR}"
 
-# Stage 3 - patch rpath so the python executable + dynload modules find their
-# libs relative to themselves, making the install relocatable.
-FROM python_builder AS patch_to_make_relocatable
+# Stage 3 - install the bundled pip packages from requirements.txt.
+# Runs before patchelf because we want the rpath-rewrite step to also fix
+# any C extensions pip builds from source against /opt/python${MINOR}/lib.
+# LD_LIBRARY_PATH is set explicitly because the binary's RPATH hasn't been
+# rewritten yet at this point.
+FROM python_builder AS python_with_packages
+ARG PYTHON_MINOR
+COPY requirements.txt /tmp/requirements.txt
+RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
+  export LD_LIBRARY_PATH="${PREFIX}/lib" && \
+  scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir --upgrade pip" && \
+  scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r /tmp/requirements.txt" && \
+  find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
+  rm -f /tmp/requirements.txt
+
+# Stage 4 - rewrite RPATHs so the python interpreter, stdlib extension
+# modules, bundled libs (libssl/libcrypto/libsqlite/libpython), and
+# pip-installed C extensions all find their dependencies via $ORIGIN.
+# scripts/relocate.sh computes per-file relative paths to lib/.
+FROM python_with_packages AS patch_to_make_relocatable
 ARG PYTHON_MINOR
 RUN yum install -y epel-release && yum install -y patchelf
-RUN patchelf --set-rpath '$ORIGIN/../lib' /opt/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR}
-RUN find /opt/python${PYTHON_MINOR}/lib/python${PYTHON_MINOR}/lib-dynload -name "*.so" | \
-  xargs -n1 patchelf --set-rpath '$ORIGIN/../..'
+COPY scripts/relocate.sh /usr/local/bin/relocate.sh
+RUN chmod +x /usr/local/bin/relocate.sh && \
+  /usr/local/bin/relocate.sh /opt/python${PYTHON_MINOR} ${PYTHON_MINOR}
 
-# Stage 4 - copy the patched install to a fresh build env and exercise modules
-# that load shared libs to verify rpath patching works after relocation.
+# Stage 5 - copy the patched install to a fresh build env and exercise
+# stdlib + bundled-package imports to verify rpath patching survived
+# relocation.
 FROM openssl_sqlite_builder AS test_relocatable
 ARG PYTHON_MINOR
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
-RUN /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} --version && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import sys; print('Platform:', sys.platform)" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import ctypes; print('ctypes: OK')" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _decimal; print('decimal: OK')" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _hashlib; print('hashlib: OK')" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _bz2; print('bz2: OK')" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _lzma; print('lzma: OK')" && \
-  /opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} -c "import _uuid; print('uuid: OK')" && \
+RUN PY=/opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} && \
+  ${PY} --version && \
+  ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
+  ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
+  ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
+  ${PY} -c "import sys; print('Platform:', sys.platform)" && \
+  ${PY} -c "import ctypes; print('ctypes: OK')" && \
+  ${PY} -c "import _decimal; print('decimal: OK')" && \
+  ${PY} -c "import _hashlib; print('hashlib: OK')" && \
+  ${PY} -c "import _bz2; print('bz2: OK')" && \
+  ${PY} -c "import _lzma; print('lzma: OK')" && \
+  ${PY} -c "import _uuid; print('uuid: OK')" && \
+  ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
+  ${PY} -c "import requests; print('requests:', requests.__version__)" && \
+  ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
   touch /tmp/relocatable-tests-passed
 
 # Stage 5 (final) - build the release tarball. Pulls a marker file from the

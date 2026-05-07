@@ -9,6 +9,8 @@ This project produces a relocatable CPython tarball that runs on CentOS 6
 - CentOS 6 compatible (built against glibc 2.12)
 - Relocatable: extract the tarball to any directory
 - Bundled OpenSSL 1.1.1, SQLite, full standard library, and pip
+- Bundled third-party packages declared in `requirements.txt` (defaults:
+  `certifi`, `requests`, `pycryptodome`)
 - Parametric on Python version: pass `3.10.20` (or any other patch release
   with a definition in upstream pyenv) and the build does the rest
 
@@ -79,20 +81,54 @@ readelf -d /opt/python3.10/bin/python3.10 | grep RPATH
 
 ## Build pipeline
 
-The Dockerfile has four stages, all chained from a CentOS 6 + devtoolset-7
+The Dockerfile has five stages, all chained from a CentOS 6 + devtoolset-7
 base:
 
 1. `openssl_sqlite_builder` — installs build deps, clones pinned pyenv,
    generates the relocatable build definition, builds OpenSSL 1.1.1w and
    SQLite into `/opt/python<MINOR>`.
 2. `python_builder` — runs `python-build` against the generated definition.
-3. `patch_to_make_relocatable` — installs patchelf and rewrites RPATHs.
-4. `test_relocatable` — copies the patched install to a fresh path and
-   imports `ssl`, `sqlite3`, `zlib`, `ctypes`, `_decimal`, `_hashlib`,
-   `_bz2`, `_lzma`, `_uuid` to verify the rpath patching survived
-   relocation. The final stage pulls a marker file from this stage so it's
-   forced to run; failures here fail the whole build.
-5. `final_archive_env` — tars `/opt/python<MINOR>` into the release archive.
+3. `python_with_packages` — `pip install -r requirements.txt` against the
+   freshly built python, with `LD_LIBRARY_PATH` and devtoolset-7 in scope so
+   any source builds compile correctly. Strips `__pycache__` afterward.
+4. `patch_to_make_relocatable` — installs patchelf and runs
+   `scripts/relocate.sh`, which rewrites RPATHs on the python binary, every
+   `.so` under the prefix (stdlib lib-dynload, bundled libs, and pip-
+   installed C extensions), and rewrites `bin/*` shebangs.
+5. `test_relocatable` — copies the patched install to a fresh path and
+   imports stdlib modules (`ssl`, `sqlite3`, `zlib`, `ctypes`, `_decimal`,
+   `_hashlib`, `_bz2`, `_lzma`, `_uuid`) plus bundled packages (`certifi`,
+   `requests`, `pycryptodome`) to verify rpath patching survived relocation.
+   The final stage pulls a marker file from this stage so it's forced to
+   run; failures here fail the whole build.
+6. `final_archive_env` — tars `/opt/python<MINOR>` into the release archive.
+
+## Bundled packages
+
+`requirements.txt` controls which third-party packages get pre-installed
+into the tarball. Edit the file and rebuild to change the bundle.
+
+Things to know:
+
+- **manylinux compatibility.** CentOS 6 is glibc 2.12, so pip can only
+  install wheels tagged `manylinux1`, `manylinux2010`, `manylinux_2_5`, or
+  `manylinux_2_12`. Many modern projects (`cryptography`, `numpy`, etc.)
+  no longer publish those, so pip will fall back to source builds.
+- **Source builds.** When pip falls back to source, it uses devtoolset-7
+  GCC and links against the OpenSSL 1.1.1 / SQLite installed at
+  `/opt/python<MINOR>`. If a package needs additional headers (libxml2,
+  libpq, etc.), add the relevant `-devel` package to the `yum install` in
+  `Dockerfile` before the package gets installed.
+- **RPATH rewriting.** `scripts/relocate.sh` runs after pip install and
+  uses `realpath --relative-to` to set each `.so`'s RPATH to an
+  `$ORIGIN/<rel>` pointing at the bundled `lib/` directory. This catches
+  both stdlib extensions and pip-installed C extensions in one pass.
+- **Shebang rewriting.** Console scripts in `bin/` (e.g. `pip`,
+  `pip<MINOR>`) are rewritten from absolute interpreter paths to
+  `#!/usr/bin/env python<MINOR>`, so they work when the user puts the
+  bundled `bin/` on `PATH` after extracting.
+- **`pycrypto` is dead.** The successor is `pycryptodome` (drop-in:
+  `from Crypto.Cipher import AES` still works). Use that.
 
 ## Troubleshooting
 

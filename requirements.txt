@@ -1,0 +1,15 @@
+# Packages bundled into the relocatable Python tarball.
+# Edit this list and rebuild to change what ships with the distribution.
+#
+# Notes for adding more packages:
+#   - Pure-Python packages "just work" anywhere.
+#   - C-extension packages need a manylinux wheel compatible with glibc 2.12
+#     (manylinux1 / manylinux2010 / manylinux_2_5 / manylinux_2_12). Many
+#     modern projects no longer publish those, so pip will fall back to
+#     building from source — which may need extra -devel packages added to
+#     the yum install in the Dockerfile.
+#   - After build, scripts/relocate.sh rewrites RPATHs and shebangs so the
+#     install can be extracted anywhere.
+certifi
+requests
+pycryptodome
