@@ -91,7 +91,7 @@ jobs:
       - name: Export flattened image with crane
         uses: docker://gcr.io/go-containerregistry/crane:debug
         with:
-          args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }} /github/workspace/image.tar
+          args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }} ${{ github.workspace }}/image.tar
 
       - name: Extract python tarball from image
         shell: bash
