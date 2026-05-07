@@ -47,6 +47,26 @@ jobs:
           echo "python_minor=${PYTHON_MINOR}" >> "$GITHUB_OUTPUT"
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
 
+      - name: Inspect workspace contents
+        shell: bash
+        run: |
+          set -eu
+          echo "GITHUB_WORKSPACE=${GITHUB_WORKSPACE:-<unset>}"
+          echo "PWD=$(pwd)"
+          echo
+          echo "--- ls -la \$GITHUB_WORKSPACE ---"
+          ls -la "${GITHUB_WORKSPACE:-/github/workspace}"
+          echo
+          echo "--- which files of interest exist? ---"
+          for f in Dockerfile requirements.txt scripts/relocate.py; do
+            p="${GITHUB_WORKSPACE:-/github/workspace}/${f}"
+            if [ -e "$p" ]; then
+              echo "OK: $p"
+            else
+              echo "MISSING: $p"
+            fi
+          done
+
       - name: Build image with kaniko
         uses: docker://gcr.io/kaniko-project/executor:debug
         with:
