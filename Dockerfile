@@ -171,7 +171,8 @@ ARG PYTHON_MINOR
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
-RUN PY=/opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} && \
+RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
+  PY=${BIN}/python${PYTHON_MINOR} && \
   ${PY} --version && \
   ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
   ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
@@ -186,6 +187,8 @@ RUN PY=/opt/very/relocated/python${PYTHON_MINOR}/bin/python${PYTHON_MINOR} && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
+  ${BIN}/openssl version && \
+  ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-passed
 
 # Stage 5 (final) - build the release tarball. Pulls a marker file from the

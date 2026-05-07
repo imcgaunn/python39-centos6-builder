@@ -52,15 +52,26 @@ def shq(s):
     return "'" + s.replace("'", "'\\''") + "'"
 
 
+def collect_bin_elfs(bin_dir):
+    for name in sorted(os.listdir(bin_dir)):
+        path = os.path.join(bin_dir, name)
+        if os.path.islink(path) or not os.path.isfile(path):
+            continue
+        if not is_elf(path):
+            continue
+        yield path
+
+
 def write_patch_script(prefix, minor, lib_dir, bin_dir, out_path):
-    py_bin = os.path.join(bin_dir, "python" + minor)
     count = 0
     with open(out_path, "w") as out:
         out.write("#!/bin/sh\nset -eu\n")
         out.write("echo '=== relocate phase 2: applying patchelf changes ==='\n")
-        out.write(
-            "patchelf --set-rpath '$ORIGIN/../lib' " + shq(py_bin) + "\n"
-        )
+        for binary in collect_bin_elfs(bin_dir):
+            sq = shq(binary)
+            out.write("patchelf --remove-rpath " + sq + " 2>/dev/null || true\n")
+            out.write("patchelf --set-rpath '$ORIGIN/../lib' " + sq + "\n")
+            count += 1
         for so in collect_sos(prefix):
             rel = os.path.relpath(lib_dir, os.path.dirname(so))
             sq = shq(so)
@@ -70,7 +81,7 @@ def write_patch_script(prefix, minor, lib_dir, bin_dir, out_path):
             )
             count += 1
         out.write(
-            'echo "patched RPATH on {} shared objects"\n'.format(count)
+            'echo "patched RPATH on {} ELF objects"\n'.format(count)
         )
     return count
 
@@ -127,7 +138,7 @@ def main(argv):
 
     count = write_patch_script(prefix, minor, lib_dir, bin_dir, out_script)
     print(
-        "wrote {} patchelf invocations to {}".format(count + 1, out_script)
+        "wrote {} patchelf invocations to {}".format(count, out_script)
     )
     print("=== phase 1 done; phase 2 is `sh " + out_script + "` ===")
     return 0
