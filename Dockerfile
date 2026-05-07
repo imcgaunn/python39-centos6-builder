@@ -180,11 +180,14 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   sh /tmp/relocate-patches.sh && \
   rm -f /tmp/relocate-patches.sh
 
-# Stage 6 - copy the patched install to a fresh build env and exercise
-# stdlib + bundled-package imports to verify rpath patching survived
-# relocation. Imports the lib-dynload C extensions whose NEEDED entries
-# point at bundled CentOS 6 sonames (readline, _curses, _gdbm, _ctypes,
-# _uuid) to confirm the bundling stage put the right files in lib/.
+# Stage 6 - copy the patched install to a fresh build env and run CPython's
+# own stdlib regression tests against the relocated tree. This exercises
+# real behavior in every C extension whose NEEDED entries point at our
+# bundled libs (TLS handshakes, sqlite db operations, real bz2/lzma
+# round-trips, etc.) — strictly stronger than checking that the .so files
+# load. The third-party smoke tests (requests/pycryptodome/certifi) and
+# helper-binary version prints stay because the stdlib suite doesn't
+# cover them.
 FROM openssl_sqlite_builder AS test_relocatable
 ARG PYTHON_MINOR
 RUN mkdir -p /opt/very/relocated
@@ -197,17 +200,11 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
   ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
   ${PY} -c "import sys; print('Platform:', sys.platform)" && \
-  ${PY} -c "import ctypes; print('ctypes: OK')" && \
-  ${PY} -c "import _decimal; print('decimal: OK')" && \
-  ${PY} -c "import _hashlib; print('hashlib: OK')" && \
-  ${PY} -c "import _bz2; print('bz2: OK')" && \
-  ${PY} -c "import _lzma; print('lzma: OK')" && \
-  ${PY} -c "import _uuid; print('uuid: OK')" && \
-  ${PY} -c "import readline; print('readline: OK')" && \
-  ${PY} -c "import _curses; print('_curses: OK')" && \
-  ${PY} -c "import _curses_panel; print('_curses_panel: OK')" && \
-  ${PY} -c "import _gdbm; print('_gdbm: OK')" && \
-  ${PY} -c "import _dbm; print('_dbm: OK')" && \
+  TERM=xterm ${PY} -m test -j$(nproc) --quiet \
+    test_sqlite3 test_lzma test_bz2 test_zlib \
+    test_ctypes test_uuid test_ssl test_hashlib \
+    test_decimal test_dbm test_dbm_gnu test_readline \
+    test_curses test_crypt && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
@@ -235,17 +232,11 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
   ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
   ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-  ${PY} -c "import ctypes; print('ctypes: OK')" && \
-  ${PY} -c "import _decimal; print('decimal: OK')" && \
-  ${PY} -c "import _hashlib; print('hashlib: OK')" && \
-  ${PY} -c "import _bz2; print('bz2: OK')" && \
-  ${PY} -c "import _lzma; print('lzma: OK')" && \
-  ${PY} -c "import _uuid; print('uuid: OK')" && \
-  ${PY} -c "import readline; print('readline: OK')" && \
-  ${PY} -c "import _curses; print('_curses: OK')" && \
-  ${PY} -c "import _curses_panel; print('_curses_panel: OK')" && \
-  ${PY} -c "import _gdbm; print('_gdbm: OK')" && \
-  ${PY} -c "import _dbm; print('_dbm: OK')" && \
+  TERM=xterm ${PY} -m test -j$(nproc) --quiet \
+    test_sqlite3 test_lzma test_bz2 test_zlib \
+    test_ctypes test_uuid test_ssl test_hashlib \
+    test_decimal test_dbm test_dbm_gnu test_readline \
+    test_curses test_crypt && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
@@ -273,17 +264,11 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
   ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
   ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-  ${PY} -c "import ctypes; print('ctypes: OK')" && \
-  ${PY} -c "import _decimal; print('decimal: OK')" && \
-  ${PY} -c "import _hashlib; print('hashlib: OK')" && \
-  ${PY} -c "import _bz2; print('bz2: OK')" && \
-  ${PY} -c "import _lzma; print('lzma: OK')" && \
-  ${PY} -c "import _uuid; print('uuid: OK')" && \
-  ${PY} -c "import readline; print('readline: OK')" && \
-  ${PY} -c "import _curses; print('_curses: OK')" && \
-  ${PY} -c "import _curses_panel; print('_curses_panel: OK')" && \
-  ${PY} -c "import _gdbm; print('_gdbm: OK')" && \
-  ${PY} -c "import _dbm; print('_dbm: OK')" && \
+  TERM=xterm ${PY} -m test -j$(nproc) --quiet \
+    test_sqlite3 test_lzma test_bz2 test_zlib \
+    test_ctypes test_uuid test_ssl test_hashlib \
+    test_decimal test_dbm test_dbm_gnu test_readline \
+    test_curses test_crypt && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \

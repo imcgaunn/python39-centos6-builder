@@ -133,21 +133,27 @@ base (the two `test_*` stages are the exceptions):
    lib-dynload, bundled libs, freshly bundled system libs, and
    pip-installed C extensions), and rewrites `bin/*` shebangs.
 6. `test_relocatable` — copies the patched install to a fresh path on a
-   CentOS 6 host and imports stdlib modules (`ssl`, `sqlite3`, `zlib`,
-   `ctypes`, `_decimal`, `_hashlib`, `_bz2`, `_lzma`, `_uuid`, `readline`,
-   `_curses`, `_curses_panel`, `_gdbm`, `_dbm`) plus bundled packages
-   (`certifi`, `requests`, `pycryptodome`) to verify rpath patching
-   survived relocation.
-7. `test_relocatable_modern` — same import suite on `ubuntu:26.04`. The
-   CentOS 6 host in stage 6 silently has any unbundled CentOS-only sonames
-   already in `/usr/lib64`, so it can't catch a regression where bundling
-   misses a lib; this stage runs against a host that has none of those, so
-   anything not bundled fails immediately.
-8. `test_relocatable_rocky9` — same import suite on `rockylinux:9`, the
-   primary RHEL-family deployment target. Rocky 9 ships
-   `libreadline.so.8`, `libtinfo.so.6`, `libffi.so.8`, `libgdbm.so.6` etc.,
-   so a regression in bundling fails this stage in addition to the Ubuntu
-   one.
+   CentOS 6 host and runs CPython's own stdlib regression suite (via
+   `python -m test`) against the C extensions whose NEEDED entries point
+   at bundled libs: `test_sqlite3`, `test_lzma`, `test_bz2`, `test_zlib`,
+   `test_ctypes`, `test_uuid`, `test_ssl`, `test_hashlib`, `test_decimal`,
+   `test_dbm`, `test_dbm_gnu`, `test_readline`, `test_curses`,
+   `test_crypt`. This actually exercises behavior (TLS handshakes, real
+   sqlite operations, bz2/lzma round-trips) rather than just confirming
+   the .so files load. Smoke checks for the bundled packages
+   (`certifi`, `requests`, `pycryptodome`) and the `bin/openssl`,
+   `bin/sqlite3` helpers stay because the stdlib suite doesn't cover
+   them.
+7. `test_relocatable_modern` — same regression-test suite on
+   `ubuntu:26.04`. The CentOS 6 host in stage 6 silently has any unbundled
+   CentOS-only sonames already in `/usr/lib64`, so it can't catch a
+   regression where bundling misses a lib; this stage runs against a host
+   that has none of those, so anything not bundled fails immediately.
+8. `test_relocatable_rocky9` — same regression-test suite on
+   `rockylinux:9`, the primary RHEL-family deployment target. Rocky 9
+   ships `libreadline.so.8`, `libtinfo.so.6`, `libffi.so.8`, `libgdbm.so.6`
+   etc., so a regression in bundling fails this stage in addition to the
+   Ubuntu one.
 9. `final_archive_env` — pulls a marker file from each test stage (forces
    buildx to schedule all three) and tars `/opt/python<MINOR>` into the
    release archive. Failures in any test fail the whole build.
