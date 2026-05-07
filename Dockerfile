@@ -12,6 +12,16 @@ ARG PYTHON_VERSION
 ARG PYTHON_MINOR
 ARG PYENV_REF
 
+# Pull build-context files in BEFORE any RUN. kaniko (used by the Forgejo
+# Actions workflow) mutates its rootfs during RUN execution and the
+# workspace bind mount at /github/workspace can become unreadable for
+# subsequent COPY directives — even within the same stage. Doing both
+# context reads up front sidesteps this; COPY auto-creates /build and
+# /usr/local/bin as needed. Later stages inherit these files via the
+# FROM chain and never touch the context themselves.
+COPY requirements.txt /build/requirements.txt
+COPY scripts/relocate.py /usr/local/bin/relocate.py
+
 # CentOS 6 reached EOL, so we need to use vault.centos.org
 RUN sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-Base.repo && \
   sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
@@ -120,17 +130,6 @@ RUN cd /tmp && \
   scl enable devtoolset-7 "make -j$(nproc)" && \
   scl enable devtoolset-7 "make install_sw" && \
   cd /tmp && rm -rf openssl-1.1.1w*
-
-# Pull build-context files into the image once, in this first stage.
-# Later stages (python_with_packages, patch_to_make_relocatable) inherit
-# them through the FROM chain rather than COPYing from context themselves.
-# Why: kaniko reinitializes its rootfs between stages, and when the build
-# context is bind-mounted into that rootfs (as Forgejo Actions does at
-# /github/workspace), the reset can leave kaniko unable to lstat context
-# files in subsequent stages even when they were readable in the first.
-RUN mkdir -p /build
-COPY requirements.txt /build/requirements.txt
-COPY scripts/relocate.py /usr/local/bin/relocate.py
 
 # Stage 2 - build python using the generated definition
 FROM openssl_sqlite_builder AS python_builder
