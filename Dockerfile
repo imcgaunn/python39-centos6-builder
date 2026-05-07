@@ -16,25 +16,29 @@ ARG PYENV_REF
 RUN sed -i 's|^mirrorlist=|#mirrorlist=|g' /etc/yum.repos.d/CentOS-Base.repo && \
   sed -i 's|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-Base.repo
 
-# Install SCL repository for newer GCC and fix its mirrors too
+# Install SCL repository for newer GCC and rewrite its repo file to point at
+# vault.centos.org. The repo body is written via printf rather than a heredoc
+# so this Dockerfile parses correctly under non-BuildKit builders (kaniko,
+# classic docker build) which don't understand heredocs spanning multiple
+# Dockerfile lines.
 RUN yum install -y centos-release-scl && \
   rm -f /etc/yum.repos.d/CentOS-SCLo-scl*.repo && \
-  cat > /etc/yum.repos.d/CentOS-SCLo-scl.repo << 'REPOEOF'
-[centos-sclo-rh]
-name=CentOS-6 - SCLo rh
-baseurl=https://vault.centos.org/6.10/sclo/x86_64/rh/
-gpgcheck=1
-enabled=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
-
-[centos-sclo-sclo]
-name=CentOS-6 - SCLo sclo
-baseurl=https://vault.centos.org/6.10/sclo/x86_64/sclo/
-gpgcheck=1
-enabled=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo
-REPOEOF
-RUN yum clean all
+  printf '%s\n' \
+    '[centos-sclo-rh]' \
+    'name=CentOS-6 - SCLo rh' \
+    'baseurl=https://vault.centos.org/6.10/sclo/x86_64/rh/' \
+    'gpgcheck=1' \
+    'enabled=1' \
+    'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo' \
+    '' \
+    '[centos-sclo-sclo]' \
+    'name=CentOS-6 - SCLo sclo' \
+    'baseurl=https://vault.centos.org/6.10/sclo/x86_64/sclo/' \
+    'gpgcheck=1' \
+    'enabled=1' \
+    'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-CentOS-SIG-SCLo' \
+    > /etc/yum.repos.d/CentOS-SCLo-scl.repo && \
+  yum clean all
 
 # Install build dependencies and devtoolset-7 (GCC 7).
 # Python 3.10 requires GCC 4.8+ and CentOS 6 only has GCC 4.4 by default.
@@ -54,6 +58,7 @@ RUN yum install -y \
   bzip2-devel \
   sqlite-devel \
   libffi-devel \
+  libuuid-devel \
   readline-devel \
   ncurses-devel \
   gdbm-devel \
