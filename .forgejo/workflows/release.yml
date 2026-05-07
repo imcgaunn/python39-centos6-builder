@@ -5,9 +5,13 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      python_version:
+        description: "Python version to build (e.g. 3.10.20). Required for manual runs."
+        required: true
+        type: string
 
 env:
-  PYTHON_BUILD_DEFINITION: 3.10.19-c6-relocatable
   IMAGE_REF: registry:5000/py-c6-builder
 
 jobs:
@@ -22,6 +26,27 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Resolve Python version
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PYTHON_VERSION="${{ inputs.python_version }}"
+          else
+            # Tag is the source of truth on push events: vX.Y.Z -> X.Y.Z
+            PYTHON_VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          if ! [[ "${PYTHON_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Resolved PYTHON_VERSION '${PYTHON_VERSION}' is not MAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          PYTHON_MINOR="${PYTHON_VERSION%.*}"
+          TARBALL="python${PYTHON_VERSION}-c6-relocatable.tar.gz"
+          echo "python_version=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "python_minor=${PYTHON_MINOR}" >> "$GITHUB_OUTPUT"
+          echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+
       - name: Build image with kaniko
         uses: docker://gcr.io/kaniko-project/executor:debug
         with:
@@ -29,7 +54,8 @@ jobs:
             --context=dir:///github/workspace
             --dockerfile=Dockerfile
             --destination=${{ env.IMAGE_REF }}:${{ github.sha }}
-            --build-arg=PYTHON_BUILD_DEFINITION=${{ env.PYTHON_BUILD_DEFINITION }}
+            --build-arg=PYTHON_VERSION=${{ steps.ver.outputs.python_version }}
+            --build-arg=PYTHON_MINOR=${{ steps.ver.outputs.python_minor }}
             --insecure
             --skip-tls-verify
             --single-snapshot
@@ -41,27 +67,37 @@ jobs:
           args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }} /github/workspace/image.tar
 
       - name: Extract python tarball from image
+        shell: bash
+        env:
+          TARBALL: ${{ steps.ver.outputs.tarball }}
         run: |
           set -euo pipefail
-          TARBALL="python${PYTHON_BUILD_DEFINITION}.tar.gz"
           tar -xf image.tar "opt/${TARBALL}"
           mv "opt/${TARBALL}" .
           rm -rf opt image.tar
           ls -lh "${TARBALL}"
 
       - name: Create release and upload asset
+        if: github.event_name == 'push'
+        shell: bash
         env:
           FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
           API: ${{ github.server_url }}/api/v1/repos/${{ github.repository }}
           TAG: ${{ github.ref_name }}
+          PYTHON_VERSION: ${{ steps.ver.outputs.python_version }}
+          PYTHON_MINOR: ${{ steps.ver.outputs.python_minor }}
+          TARBALL: ${{ steps.ver.outputs.tarball }}
         run: |
           set -euo pipefail
           apt-get update -qq
           apt-get install -y -qq curl jq
-          TARBALL="python${PYTHON_BUILD_DEFINITION}.tar.gz"
-          BODY=$(jq -n --arg tag "$TAG" --arg name "Release $TAG" \
+          BODY=$(jq -n \
+            --arg tag "$TAG" \
+            --arg name "Release $TAG" \
+            --arg version "$PYTHON_VERSION" \
+            --arg minor "$PYTHON_MINOR" \
             '{tag_name:$tag, name:$name, draft:false, prerelease:false,
-              body:"Relocatable Python \($tag) for CentOS 6 (glibc 2.12). Includes OpenSSL 1.1.1, SQLite 3.45, full stdlib, pip. Extract anywhere; binaries use $ORIGIN-relative rpath."}')
+              body:"Relocatable Python \($version) for CentOS 6 (glibc 2.12). Includes OpenSSL 1.1.1, SQLite 3.45, full stdlib, pip. Extract anywhere; binaries use $ORIGIN-relative rpath. Use as /opt/python\($minor)/bin/python\($minor)."}')
           RELEASE_ID=$(curl -fsSL -X POST "$API/releases" \
             -H "Authorization: token $FORGEJO_TOKEN" \
             -H "Content-Type: application/json" \
