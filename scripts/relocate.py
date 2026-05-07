@@ -1,38 +1,29 @@
-"""Rewrite RPATHs and shebangs under a Python install prefix so the tree
-can be extracted to any directory and still find its own libraries.
+"""Plan RPATH and shebang rewrites for a relocatable Python install.
 
 Usage:
-    python relocate.py <python-prefix> <python-minor>
-        e.g. python relocate.py /opt/python3.10 3.10
+    python relocate.py <python-prefix> <python-minor> <out-script-path>
+        e.g. python relocate.py /opt/python3.10 3.10 /tmp/relocate-patches.sh
 
-Behavior:
-    1. Sets the python interpreter's RPATH to $ORIGIN/../lib.
-    2. Walks every .so / .so.* under the prefix and sets its RPATH to
-       $ORIGIN/<rel>, where <rel> is the path from the .so's directory to
-       <prefix>/lib (computed via os.path.relpath). This catches stdlib
-       lib-dynload extensions, bundled libs (libssl/libcrypto/libsqlite/
-       libpython), and pip-installed C extensions in one pass. Symlinks
-       are skipped — the real file gets patched instead.
-    3. Rewrites #! python shebangs in bin/* to /usr/bin/env python<MINOR>
-       so console scripts work after the user extracts the tarball.
+Why two phases:
+    Linux kernel marks a binary as ETXTBSY ("Text file busy") while it is
+    memory-mapped into a running process, and patchelf opens its target
+    for write. Running this script with the bundled interpreter would
+    therefore prevent us from patching that interpreter's own binary or
+    its libpython.so. Instead, this script:
 
-Run with the bundled interpreter (LD_LIBRARY_PATH must point at <prefix>/lib
-because RPATH on the binary hasn't been rewritten yet at the moment this
-script runs).
+      1. Rewrites bin/* shebangs in place (regular files, no ELF lock).
+      2. Walks the prefix, computes per-file relative paths to <prefix>/lib
+         using os.path.relpath, and writes the patchelf invocations to a
+         shell script at <out-script-path>.
+
+    Then it exits. Once the python process exits, all its file mappings
+    are released, and a subsequent `sh <out-script-path>` can safely
+    patchelf the python binary, libpython.so, libssl, libcrypto, etc.
+
+Phase 2 is just `sh <out-script-path>` and is driven by the Dockerfile.
 """
 import os
-import shutil
-import subprocess
 import sys
-
-
-def patchelf(*args):
-    subprocess.run(["patchelf", *args], check=True)
-
-
-def patchelf_quiet(*args):
-    subprocess.run(["patchelf", *args], check=False,
-                   stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def is_elf(path):
@@ -43,8 +34,7 @@ def is_elf(path):
         return False
 
 
-def rewrite_rpaths(prefix, lib_dir):
-    patched = 0
+def collect_sos(prefix):
     for root, _, files in os.walk(prefix):
         for name in files:
             if not (name.endswith(".so") or ".so." in name):
@@ -54,11 +44,35 @@ def rewrite_rpaths(prefix, lib_dir):
                 continue
             if not is_elf(path):
                 continue
-            rel = os.path.relpath(lib_dir, root)
-            patchelf_quiet("--remove-rpath", path)
-            patchelf("--set-rpath", "$ORIGIN/" + rel, path)
-            patched += 1
-    return patched
+            yield path
+
+
+def shq(s):
+    # Single-quote a string for safe inclusion in a /bin/sh command line.
+    return "'" + s.replace("'", "'\\''") + "'"
+
+
+def write_patch_script(prefix, minor, lib_dir, bin_dir, out_path):
+    py_bin = os.path.join(bin_dir, "python" + minor)
+    count = 0
+    with open(out_path, "w") as out:
+        out.write("#!/bin/sh\nset -eu\n")
+        out.write("echo '=== relocate phase 2: applying patchelf changes ==='\n")
+        out.write(
+            "patchelf --set-rpath '$ORIGIN/../lib' " + shq(py_bin) + "\n"
+        )
+        for so in collect_sos(prefix):
+            rel = os.path.relpath(lib_dir, os.path.dirname(so))
+            sq = shq(so)
+            out.write("patchelf --remove-rpath " + sq + " 2>/dev/null || true\n")
+            out.write(
+                "patchelf --set-rpath '$ORIGIN/" + rel + "' " + sq + "\n"
+            )
+            count += 1
+        out.write(
+            'echo "patched RPATH on {} shared objects"\n'.format(count)
+        )
+    return count
 
 
 def rewrite_shebangs(bin_dir, minor):
@@ -73,12 +87,11 @@ def rewrite_shebangs(bin_dir, minor):
                 head = fh.read(2)
                 if head != b"#!":
                     continue
-                rest_of_first_line = fh.readline()
+                rest = fh.readline()
                 body = fh.read()
         except OSError:
             continue
-        first_line = head + rest_of_first_line
-        if b"python" not in first_line:
+        if b"python" not in (head + rest):
             continue
         with open(path, "wb") as fh:
             fh.write(new_shebang)
@@ -88,35 +101,35 @@ def rewrite_shebangs(bin_dir, minor):
 
 
 def main(argv):
-    if len(argv) != 3:
-        print("usage: relocate.py <python-prefix> <python-minor>",
-              file=sys.stderr)
+    if len(argv) != 4:
+        print(
+            "usage: relocate.py <python-prefix> <python-minor> <out-script>",
+            file=sys.stderr,
+        )
         return 2
 
-    prefix = argv[1]
-    minor = argv[2]
+    prefix, minor, out_script = argv[1], argv[2], argv[3]
     lib_dir = os.path.join(prefix, "lib")
     bin_dir = os.path.join(prefix, "bin")
 
-    if not os.path.isdir(prefix) or not os.path.isdir(lib_dir):
+    if not (os.path.isdir(prefix) and os.path.isdir(lib_dir)):
         print("no such prefix or lib dir: " + prefix, file=sys.stderr)
         return 1
-    if not shutil.which("patchelf"):
-        print("patchelf not found in PATH", file=sys.stderr)
-        return 1
 
-    print("=== relocate.py: prefix={} minor={} ===".format(prefix, minor))
-
-    patchelf("--set-rpath", "$ORIGIN/../lib",
-             os.path.join(bin_dir, "python" + minor))
-
-    patched = rewrite_rpaths(prefix, lib_dir)
-    print("patched RPATH on {} shared objects".format(patched))
+    print(
+        "=== relocate.py phase 1 (plan): prefix={} minor={} ===".format(
+            prefix, minor
+        )
+    )
 
     rewritten = rewrite_shebangs(bin_dir, minor)
     print("rewrote {} python shebangs in {}".format(rewritten, bin_dir))
 
-    print("=== relocate.py: done ===")
+    count = write_patch_script(prefix, minor, lib_dir, bin_dir, out_script)
+    print(
+        "wrote {} patchelf invocations to {}".format(count + 1, out_script)
+    )
+    print("=== phase 1 done; phase 2 is `sh " + out_script + "` ===")
     return 0
 
 

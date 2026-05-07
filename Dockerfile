@@ -142,21 +142,26 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
   rm -f /tmp/requirements.txt
 
-# Stage 4 - rewrite RPATHs so the python interpreter, stdlib extension
-# modules, bundled libs (libssl/libcrypto/libsqlite/libpython), and
-# pip-installed C extensions all find their dependencies via $ORIGIN.
-# scripts/relocate.py uses os.path.relpath to compute per-file paths to
-# lib/. We invoke it with the bundled interpreter (CentOS 6's coreutils
-# 8.4 is too old to ship realpath --relative-to, so a portable shell
-# implementation would mean owning custom relpath logic; using Python is
-# cleaner since we just built one).
+# Stage 4 - rewrite RPATHs and shebangs so the install can be relocated.
+# Done in two phases because patchelf can't modify a file that's mapped
+# into a running process (ETXTBSY): if we ran patchelf via the bundled
+# python, it could not patch the python binary or libpython.so itself.
+# Phase 1: bundled python plans the work — rewrites bin/* shebangs in
+# place (regular files, no ELF lock) and emits a shell script of patchelf
+# invocations using os.path.relpath to compute paths to lib/.
+# Phase 2: sh runs that script after python has exited, releasing all
+# file mappings, so patchelf can safely modify the binary, libpython.so,
+# the bundled OpenSSL/SQLite libs, and every other .so under the prefix.
 FROM python_with_packages AS patch_to_make_relocatable
 ARG PYTHON_MINOR
 RUN yum install -y epel-release && yum install -y patchelf
 COPY scripts/relocate.py /usr/local/bin/relocate.py
 RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   export LD_LIBRARY_PATH="${PREFIX}/lib" && \
-  ${PREFIX}/bin/python${PYTHON_MINOR} /usr/local/bin/relocate.py ${PREFIX} ${PYTHON_MINOR}
+  ${PREFIX}/bin/python${PYTHON_MINOR} /usr/local/bin/relocate.py \
+    ${PREFIX} ${PYTHON_MINOR} /tmp/relocate-patches.sh && \
+  sh /tmp/relocate-patches.sh && \
+  rm -f /tmp/relocate-patches.sh
 
 # Stage 5 - copy the patched install to a fresh build env and exercise
 # stdlib + bundled-package imports to verify rpath patching survived

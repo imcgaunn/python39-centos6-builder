@@ -121,12 +121,18 @@ Things to know:
   libpq, etc.), add the relevant `-devel` package to the `yum install` in
   `Dockerfile` before the package gets installed.
 - **RPATH rewriting.** `scripts/relocate.py` runs after pip install and
-  uses `os.path.relpath` to set each `.so`'s RPATH to an `$ORIGIN/<rel>`
-  pointing at the bundled `lib/` directory. This catches both stdlib
-  extensions and pip-installed C extensions in one pass. (It's Python
-  rather than shell because CentOS 6's coreutils predates
-  `realpath --relative-to`, and shelling out a custom relpath helper is
-  more code than just using the interpreter we just built.)
+  uses `os.path.relpath` to plan an `$ORIGIN/<rel>` RPATH for every `.so`,
+  pointing at the bundled `lib/` directory. This catches stdlib extensions
+  and pip-installed C extensions in one pass. (It's Python rather than
+  shell because CentOS 6's coreutils predates `realpath --relative-to`.)
+- **Two-phase patching.** Linux returns `ETXTBSY` when patchelf tries to
+  modify a binary that's mapped into a running process. The bundled
+  python interpreter would hold both itself and `libpython.so` mapped
+  while running, blocking patchelf on those targets. So `relocate.py`
+  only *plans* the work — rewriting bin/* shebangs and emitting a shell
+  script of patchelf invocations — and exits. The Dockerfile then runs
+  that shell script in a fresh `sh` process, where the python mappings
+  are gone and patchelf can modify everything.
 - **Shebang rewriting.** Console scripts in `bin/` (e.g. `pip`,
   `pip<MINOR>`) are rewritten from absolute interpreter paths to
   `#!/usr/bin/env python<MINOR>`, so they work when the user puts the
