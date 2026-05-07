@@ -47,7 +47,7 @@ jobs:
           echo "python_minor=${PYTHON_MINOR}" >> "$GITHUB_OUTPUT"
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
 
-      - name: Inspect workspace contents
+      - name: Inspect workspace contents (runner-side)
         shell: bash
         run: |
           set -eu
@@ -56,22 +56,29 @@ jobs:
           echo
           echo "--- ls -la \$GITHUB_WORKSPACE ---"
           ls -la "${GITHUB_WORKSPACE:-/github/workspace}"
-          echo
-          echo "--- which files of interest exist? ---"
-          for f in Dockerfile requirements.txt scripts/relocate.py; do
-            p="${GITHUB_WORKSPACE:-/github/workspace}/${f}"
-            if [ -e "$p" ]; then
-              echo "OK: $p"
-            else
-              echo "MISSING: $p"
-            fi
-          done
+
+      - name: Inspect workspace contents (docker:// side)
+        # Same execution context kaniko sees. Confirms which paths are
+        # actually accessible from within a docker:// step before we
+        # commit to a kaniko --context value.
+        uses: docker://busybox:latest
+        with:
+          args: >-
+            sh -c "
+            echo 'PWD inside docker step:'; pwd;
+            echo;
+            echo 'ls /github/workspace (GitHub-style mount path):';
+            ls -la /github/workspace 2>&1 || echo MISSING;
+            echo;
+            echo 'ls ${{ github.workspace }} (workflow-expression value):';
+            ls -la ${{ github.workspace }} 2>&1 || echo MISSING;
+            "
 
       - name: Build image with kaniko
         uses: docker://gcr.io/kaniko-project/executor:debug
         with:
           args: >-
-            --context=dir:///github/workspace
+            --context=dir://${{ github.workspace }}
             --dockerfile=Dockerfile
             --destination=${{ env.IMAGE_REF }}:${{ github.sha }}
             --build-arg=PYTHON_VERSION=${{ steps.ver.outputs.python_version }}
