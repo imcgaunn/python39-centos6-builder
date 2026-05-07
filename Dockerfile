@@ -62,8 +62,7 @@ RUN yum install -y \
   readline-devel \
   ncurses-devel \
   gdbm-devel \
-  xz-devel \
-  tk-devel && \
+  xz-devel && \
   yum clean all
 
 RUN mkdir -p /opt/python${PYTHON_MINOR}
@@ -142,7 +141,19 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
   rm -f /tmp/requirements.txt
 
-# Stage 4 - rewrite RPATHs and shebangs so the install can be relocated.
+# Stage 4 - bundle CentOS-6-only system shared libraries into the prefix.
+# Several lib-dynload modules (readline, _curses, _gdbm, _ctypes, _uuid)
+# and bin/sqlite3 NEED sonames that only exist on CentOS 6 (libreadline.so.6,
+# libtinfo.so.5, libffi.so.5, etc.). Copying them into ${PREFIX}/lib makes the
+# tarball runnable on modern distros too — RPATH already covers that dir.
+# Done before the patchelf stage so relocate.py's prefix walk picks these up
+# and rewrites their RPATH alongside everything else.
+FROM python_with_packages AS python_with_bundled_system_libs
+ARG PYTHON_MINOR
+COPY scripts/bundle-system-libs.sh /usr/local/bin/bundle-system-libs.sh
+RUN sh /usr/local/bin/bundle-system-libs.sh /opt/python${PYTHON_MINOR}
+
+# Stage 5 - rewrite RPATHs and shebangs so the install can be relocated.
 # Done in two phases because patchelf can't modify a file that's mapped
 # into a running process (ETXTBSY): if we ran patchelf via the bundled
 # python, it could not patch the python binary or libpython.so itself.
@@ -152,7 +163,7 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
 # Phase 2: sh runs that script after python has exited, releasing all
 # file mappings, so patchelf can safely modify the binary, libpython.so,
 # the bundled OpenSSL/SQLite libs, and every other .so under the prefix.
-FROM python_with_packages AS patch_to_make_relocatable
+FROM python_with_bundled_system_libs AS patch_to_make_relocatable
 ARG PYTHON_MINOR
 RUN yum install -y epel-release && yum install -y patchelf
 COPY scripts/relocate.py /usr/local/bin/relocate.py
@@ -163,9 +174,11 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
   sh /tmp/relocate-patches.sh && \
   rm -f /tmp/relocate-patches.sh
 
-# Stage 5 - copy the patched install to a fresh build env and exercise
+# Stage 6 - copy the patched install to a fresh build env and exercise
 # stdlib + bundled-package imports to verify rpath patching survived
-# relocation.
+# relocation. Imports the lib-dynload C extensions whose NEEDED entries
+# point at bundled CentOS 6 sonames (readline, _curses, _gdbm, _ctypes,
+# _uuid) to confirm the bundling stage put the right files in lib/.
 FROM openssl_sqlite_builder AS test_relocatable
 ARG PYTHON_MINOR
 RUN mkdir -p /opt/very/relocated
@@ -184,6 +197,11 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import _bz2; print('bz2: OK')" && \
   ${PY} -c "import _lzma; print('lzma: OK')" && \
   ${PY} -c "import _uuid; print('uuid: OK')" && \
+  ${PY} -c "import readline; print('readline: OK')" && \
+  ${PY} -c "import _curses; print('_curses: OK')" && \
+  ${PY} -c "import _curses_panel; print('_curses_panel: OK')" && \
+  ${PY} -c "import _gdbm; print('_gdbm: OK')" && \
+  ${PY} -c "import _dbm; print('_dbm: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
@@ -191,13 +209,91 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-passed
 
-# Stage 5 (final) - build the release tarball. Pulls a marker file from the
-# test stage so buildx is forced to schedule it; if relocation tests fail the
-# whole build fails before producing an archive.
+# Stage 7 - second verification on a current Ubuntu LTS. Catches regressions
+# where a NEEDED soname only exists on CentOS 6 and isn't bundled — the
+# CentOS 6 test stage above silently passes those because the host happens
+# to have the libs in /usr/lib64. This stage runs the same imports against
+# a host that has none of those CentOS-6-vintage sonames, so any unbundled
+# system dep surfaces as an ImportError or sqlite3 dynamic-link failure.
+FROM ubuntu:26.04 AS test_relocatable_modern
+ARG PYTHON_MINOR
+RUN apt-get update && \
+  apt-get install -y --no-install-recommends ca-certificates && \
+  rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /opt/very/relocated
+WORKDIR /opt/very/relocated
+COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
+RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
+  PY=${BIN}/python${PYTHON_MINOR} && \
+  ${PY} --version && \
+  ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
+  ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
+  ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
+  ${PY} -c "import ctypes; print('ctypes: OK')" && \
+  ${PY} -c "import _decimal; print('decimal: OK')" && \
+  ${PY} -c "import _hashlib; print('hashlib: OK')" && \
+  ${PY} -c "import _bz2; print('bz2: OK')" && \
+  ${PY} -c "import _lzma; print('lzma: OK')" && \
+  ${PY} -c "import _uuid; print('uuid: OK')" && \
+  ${PY} -c "import readline; print('readline: OK')" && \
+  ${PY} -c "import _curses; print('_curses: OK')" && \
+  ${PY} -c "import _curses_panel; print('_curses_panel: OK')" && \
+  ${PY} -c "import _gdbm; print('_gdbm: OK')" && \
+  ${PY} -c "import _dbm; print('_dbm: OK')" && \
+  ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
+  ${PY} -c "import requests; print('requests:', requests.__version__)" && \
+  ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
+  ${BIN}/openssl version && \
+  ${BIN}/sqlite3 -version && \
+  touch /tmp/relocatable-tests-modern-passed
+
+# Stage 8 - third verification on Rocky Linux 9, which is one of the
+# deployment targets. Same import suite as the Ubuntu stage; rocky 9 ships
+# different soname versions (libreadline.so.8, libtinfo.so.6, libffi.so.8,
+# libgdbm.so.6, ...) than CentOS 6, so this exercises the bundled-libs
+# path on a real RHEL-family modern host.
+FROM rockylinux:9 AS test_relocatable_rocky9
+ARG PYTHON_MINOR
+# libxcrypt-compat provides libcrypt.so.1 (Rocky 9's base libxcrypt only
+# ships libcrypt.so.2). The bundled python links against libcrypt.so.1.
+RUN dnf install -y --setopt=install_weak_deps=False ca-certificates libxcrypt-compat && \
+  dnf clean all
+RUN mkdir -p /opt/very/relocated
+WORKDIR /opt/very/relocated
+COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
+RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
+  PY=${BIN}/python${PYTHON_MINOR} && \
+  ${PY} --version && \
+  ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
+  ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
+  ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
+  ${PY} -c "import ctypes; print('ctypes: OK')" && \
+  ${PY} -c "import _decimal; print('decimal: OK')" && \
+  ${PY} -c "import _hashlib; print('hashlib: OK')" && \
+  ${PY} -c "import _bz2; print('bz2: OK')" && \
+  ${PY} -c "import _lzma; print('lzma: OK')" && \
+  ${PY} -c "import _uuid; print('uuid: OK')" && \
+  ${PY} -c "import readline; print('readline: OK')" && \
+  ${PY} -c "import _curses; print('_curses: OK')" && \
+  ${PY} -c "import _curses_panel; print('_curses_panel: OK')" && \
+  ${PY} -c "import _gdbm; print('_gdbm: OK')" && \
+  ${PY} -c "import _dbm; print('_dbm: OK')" && \
+  ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
+  ${PY} -c "import requests; print('requests:', requests.__version__)" && \
+  ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
+  ${BIN}/openssl version && \
+  ${BIN}/sqlite3 -version && \
+  touch /tmp/relocatable-tests-rocky9-passed
+
+# Stage 9 (final) - build the release tarball. Pulls a marker file from each
+# test stage so buildx is forced to schedule all three; if any set of
+# relocation tests fails the whole build fails before producing an archive.
 FROM patch_to_make_relocatable AS final_archive_env
 ARG PYTHON_VERSION
 ARG PYTHON_MINOR
 COPY --from=test_relocatable /tmp/relocatable-tests-passed /tmp/relocatable-tests-passed
+COPY --from=test_relocatable_modern /tmp/relocatable-tests-modern-passed /tmp/relocatable-tests-modern-passed
+COPY --from=test_relocatable_rocky9 /tmp/relocatable-tests-rocky9-passed /tmp/relocatable-tests-rocky9-passed
 RUN cd /opt && \
   tar -czf python${PYTHON_VERSION}-c6-relocatable.tar.gz python${PYTHON_MINOR} && \
   echo "python build complete - tar created at /opt/python${PYTHON_VERSION}-c6-relocatable.tar.gz"

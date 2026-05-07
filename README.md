@@ -9,8 +9,17 @@ This project produces a relocatable CPython tarball that runs on CentOS 6
 - CentOS 6 compatible (built against glibc 2.12)
 - Relocatable: extract the tarball to any directory
 - Bundled OpenSSL 1.1.1, SQLite, full standard library, and pip
+- Bundled CentOS-6-vintage system shared libraries (`libreadline.so.6`,
+  `libtinfo.so.5`, `libncursesw.so.5`, `libpanelw.so.5`, `libgdbm.so.2`,
+  `libffi.so.5`, `libuuid.so.1`, `liblzma.so.0`, `libbz2.so.1`) so the
+  tarball runs on modern distros too, not just CentOS 6. `libcrypt.so.1`
+  is *not* bundled — see "Runtime requirements" below
 - Bundled third-party packages declared in `requirements.txt` (defaults:
   `certifi`, `requests`, `pycryptodome`)
+- `_tkinter` is intentionally not built — Tcl/Tk 8.5 (the version on
+  CentOS 6) isn't packaged on modern distros and bundling it would pull
+  in a large X11 dependency tree. Use a separate Python install if you
+  need Tkinter.
 - Parametric on Python version: pass `3.10.20` (or any other patch release
   with a definition in upstream pyenv) and the build does the rest
 
@@ -44,6 +53,28 @@ build time the Dockerfile:
 
 To support a newer Python release that the pinned pyenv doesn't yet know
 about, bump `PYENV_REF` to a tag that ships its definition.
+
+## Runtime requirements
+
+The tarball is self-contained except for one library: `libcrypt.so.1`.
+`libpython3.10.so` and the `_crypt` stdlib module link against it.
+
+| Distro | Package providing `libcrypt.so.1` | Default install? |
+| --- | --- | --- |
+| CentOS 6 / 7 | `glibc` | yes |
+| RHEL/Rocky/Alma 8 | `libxcrypt` | yes |
+| RHEL/Rocky/Alma 9+ | `libxcrypt-compat` | yes |
+| Debian/Ubuntu (any modern release) | `libcrypt1` | yes |
+
+If you're deploying to a slim container image (e.g. `rockylinux:9-minimal`,
+`ubuntu:*-slim`, `gcr.io/distroless/*`) and `python3.10` fails to start
+with `error while loading shared libraries: libcrypt.so.1`, install the
+package from the table above.
+
+We don't bundle `libcrypt.so.1` because CentOS 6's version is part of
+glibc and dlopens NSS (`libfreebl3.so`) for SHA-256/512 password hashing,
+which would drag a large CentOS-6-only NSS dependency tree into the
+tarball. Modern libxcrypt has no such transitive deps.
 
 ## Deploy to CentOS 6
 
@@ -81,8 +112,8 @@ readelf -d /opt/python3.10/bin/python3.10 | grep RPATH
 
 ## Build pipeline
 
-The Dockerfile has five stages, all chained from a CentOS 6 + devtoolset-7
-base:
+The Dockerfile chains the following stages from a CentOS 6 + devtoolset-7
+base (the two `test_*` stages are the exceptions):
 
 1. `openssl_sqlite_builder` — installs build deps, clones pinned pyenv,
    generates the relocatable build definition, builds OpenSSL 1.1.1w and
@@ -91,18 +122,35 @@ base:
 3. `python_with_packages` — `pip install -r requirements.txt` against the
    freshly built python, with `LD_LIBRARY_PATH` and devtoolset-7 in scope so
    any source builds compile correctly. Strips `__pycache__` afterward.
-4. `patch_to_make_relocatable` — installs patchelf and runs
+4. `python_with_bundled_system_libs` — runs `scripts/bundle-system-libs.sh`,
+   which copies the CentOS-6 system shared libs that lib-dynload modules
+   and `bin/sqlite3` link against (see Features above) into
+   `/opt/python<MINOR>/lib`, recreating the soname symlinks. RPATH already
+   covers that directory so no further wiring is needed.
+5. `patch_to_make_relocatable` — installs patchelf and runs
    `scripts/relocate.py` (with the bundled interpreter), which rewrites
    RPATHs on the python binary, every `.so` under the prefix (stdlib
-   lib-dynload, bundled libs, and pip-installed C extensions), and
-   rewrites `bin/*` shebangs.
-5. `test_relocatable` — copies the patched install to a fresh path and
-   imports stdlib modules (`ssl`, `sqlite3`, `zlib`, `ctypes`, `_decimal`,
-   `_hashlib`, `_bz2`, `_lzma`, `_uuid`) plus bundled packages (`certifi`,
-   `requests`, `pycryptodome`) to verify rpath patching survived relocation.
-   The final stage pulls a marker file from this stage so it's forced to
-   run; failures here fail the whole build.
-6. `final_archive_env` — tars `/opt/python<MINOR>` into the release archive.
+   lib-dynload, bundled libs, freshly bundled system libs, and
+   pip-installed C extensions), and rewrites `bin/*` shebangs.
+6. `test_relocatable` — copies the patched install to a fresh path on a
+   CentOS 6 host and imports stdlib modules (`ssl`, `sqlite3`, `zlib`,
+   `ctypes`, `_decimal`, `_hashlib`, `_bz2`, `_lzma`, `_uuid`, `readline`,
+   `_curses`, `_curses_panel`, `_gdbm`, `_dbm`) plus bundled packages
+   (`certifi`, `requests`, `pycryptodome`) to verify rpath patching
+   survived relocation.
+7. `test_relocatable_modern` — same import suite on `ubuntu:26.04`. The
+   CentOS 6 host in stage 6 silently has any unbundled CentOS-only sonames
+   already in `/usr/lib64`, so it can't catch a regression where bundling
+   misses a lib; this stage runs against a host that has none of those, so
+   anything not bundled fails immediately.
+8. `test_relocatable_rocky9` — same import suite on `rockylinux:9`, the
+   primary RHEL-family deployment target. Rocky 9 ships
+   `libreadline.so.8`, `libtinfo.so.6`, `libffi.so.8`, `libgdbm.so.6` etc.,
+   so a regression in bundling fails this stage in addition to the Ubuntu
+   one.
+9. `final_archive_env` — pulls a marker file from each test stage (forces
+   buildx to schedule all three) and tars `/opt/python<MINOR>` into the
+   release archive. Failures in any test fail the whole build.
 
 ## Bundled packages
 
