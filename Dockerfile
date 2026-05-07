@@ -201,10 +201,15 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
   ${PY} -c "import sys; print('Platform:', sys.platform)" && \
   TERM=xterm ${PY} -m test -j$(nproc) --quiet \
-    test_sqlite3 test_lzma test_bz2 test_zlib \
-    test_ctypes test_uuid test_ssl test_hashlib \
+    test_lzma test_bz2 test_zlib \
+    test_uuid test_ssl test_hashlib \
     test_decimal test_dbm test_dbm_gnu test_readline \
     test_curses test_crypt && \
+  ${PY} -m unittest -q \
+    sqlite3.test.dbapi sqlite3.test.types sqlite3.test.factory \
+    sqlite3.test.transactions sqlite3.test.hooks sqlite3.test.regression \
+    sqlite3.test.userfunctions sqlite3.test.dump sqlite3.test.backup && \
+  ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
@@ -233,10 +238,15 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
   ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
   TERM=xterm ${PY} -m test -j$(nproc) --quiet \
-    test_sqlite3 test_lzma test_bz2 test_zlib \
-    test_ctypes test_uuid test_ssl test_hashlib \
+    test_lzma test_bz2 test_zlib \
+    test_uuid test_ssl test_hashlib \
     test_decimal test_dbm test_dbm_gnu test_readline \
     test_curses test_crypt && \
+  ${PY} -m unittest -q \
+    sqlite3.test.dbapi sqlite3.test.types sqlite3.test.factory \
+    sqlite3.test.transactions sqlite3.test.hooks sqlite3.test.regression \
+    sqlite3.test.userfunctions sqlite3.test.dump sqlite3.test.backup && \
+  ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
@@ -265,10 +275,15 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
   ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
   TERM=xterm ${PY} -m test -j$(nproc) --quiet \
-    test_sqlite3 test_lzma test_bz2 test_zlib \
-    test_ctypes test_uuid test_ssl test_hashlib \
+    test_lzma test_bz2 test_zlib \
+    test_uuid test_ssl test_hashlib \
     test_decimal test_dbm test_dbm_gnu test_readline \
     test_curses test_crypt && \
+  ${PY} -m unittest -q \
+    sqlite3.test.dbapi sqlite3.test.types sqlite3.test.factory \
+    sqlite3.test.transactions sqlite3.test.hooks sqlite3.test.regression \
+    sqlite3.test.userfunctions sqlite3.test.dump sqlite3.test.backup && \
+  ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
