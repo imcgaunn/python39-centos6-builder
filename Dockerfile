@@ -145,13 +145,18 @@ RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
 # Stage 4 - rewrite RPATHs so the python interpreter, stdlib extension
 # modules, bundled libs (libssl/libcrypto/libsqlite/libpython), and
 # pip-installed C extensions all find their dependencies via $ORIGIN.
-# scripts/relocate.sh computes per-file relative paths to lib/.
+# scripts/relocate.py uses os.path.relpath to compute per-file paths to
+# lib/. We invoke it with the bundled interpreter (CentOS 6's coreutils
+# 8.4 is too old to ship realpath --relative-to, so a portable shell
+# implementation would mean owning custom relpath logic; using Python is
+# cleaner since we just built one).
 FROM python_with_packages AS patch_to_make_relocatable
 ARG PYTHON_MINOR
 RUN yum install -y epel-release && yum install -y patchelf
-COPY scripts/relocate.sh /usr/local/bin/relocate.sh
-RUN chmod +x /usr/local/bin/relocate.sh && \
-  /usr/local/bin/relocate.sh /opt/python${PYTHON_MINOR} ${PYTHON_MINOR}
+COPY scripts/relocate.py /usr/local/bin/relocate.py
+RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
+  export LD_LIBRARY_PATH="${PREFIX}/lib" && \
+  ${PREFIX}/bin/python${PYTHON_MINOR} /usr/local/bin/relocate.py ${PREFIX} ${PYTHON_MINOR}
 
 # Stage 5 - copy the patched install to a fresh build env and exercise
 # stdlib + bundled-package imports to verify rpath patching survived

@@ -92,9 +92,10 @@ base:
    freshly built python, with `LD_LIBRARY_PATH` and devtoolset-7 in scope so
    any source builds compile correctly. Strips `__pycache__` afterward.
 4. `patch_to_make_relocatable` — installs patchelf and runs
-   `scripts/relocate.sh`, which rewrites RPATHs on the python binary, every
-   `.so` under the prefix (stdlib lib-dynload, bundled libs, and pip-
-   installed C extensions), and rewrites `bin/*` shebangs.
+   `scripts/relocate.py` (with the bundled interpreter), which rewrites
+   RPATHs on the python binary, every `.so` under the prefix (stdlib
+   lib-dynload, bundled libs, and pip-installed C extensions), and
+   rewrites `bin/*` shebangs.
 5. `test_relocatable` — copies the patched install to a fresh path and
    imports stdlib modules (`ssl`, `sqlite3`, `zlib`, `ctypes`, `_decimal`,
    `_hashlib`, `_bz2`, `_lzma`, `_uuid`) plus bundled packages (`certifi`,
@@ -119,10 +120,13 @@ Things to know:
   `/opt/python<MINOR>`. If a package needs additional headers (libxml2,
   libpq, etc.), add the relevant `-devel` package to the `yum install` in
   `Dockerfile` before the package gets installed.
-- **RPATH rewriting.** `scripts/relocate.sh` runs after pip install and
-  uses `realpath --relative-to` to set each `.so`'s RPATH to an
-  `$ORIGIN/<rel>` pointing at the bundled `lib/` directory. This catches
-  both stdlib extensions and pip-installed C extensions in one pass.
+- **RPATH rewriting.** `scripts/relocate.py` runs after pip install and
+  uses `os.path.relpath` to set each `.so`'s RPATH to an `$ORIGIN/<rel>`
+  pointing at the bundled `lib/` directory. This catches both stdlib
+  extensions and pip-installed C extensions in one pass. (It's Python
+  rather than shell because CentOS 6's coreutils predates
+  `realpath --relative-to`, and shelling out a custom relpath helper is
+  more code than just using the interpreter we just built.)
 - **Shebang rewriting.** Console scripts in `bin/` (e.g. `pip`,
   `pip<MINOR>`) are rewritten from absolute interpreter paths to
   `#!/usr/bin/env python<MINOR>`, so they work when the user puts the
