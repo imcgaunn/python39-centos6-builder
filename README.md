@@ -137,9 +137,11 @@ base (the two `test_*` stages are the exceptions):
    `python -m test`) against the C extensions whose NEEDED entries point
    at bundled libs: `test_lzma`, `test_bz2`, `test_zlib`, `test_uuid`,
    `test_ssl`, `test_hashlib`, `test_decimal`, `test_dbm`, `test_dbm_gnu`,
-   `test_readline`, `test_curses`, `test_crypt`. sqlite3 lives in its
-   own subpackage in 3.10 (`sqlite3.test.*`) so it's invoked separately
-   via `python -m unittest`. ctypes is exercised by a focused
+   `test_readline`, `test_curses`, `test_crypt`. sqlite3 tests are
+   dispatched by `scripts/run-sqlite3-tests.sh`, which detects the
+   layout (3.10 keeps them in `sqlite3.test.*`; 3.11+ moved them to
+   `test.test_sqlite3`) and uses `python -m unittest` or `python -m test`
+   accordingly. ctypes is exercised by a focused
    `CDLL('libc.so.6') + libc.getpid()` smoke that proves libffi works
    through ctypes — `test_ctypes` itself is too noisy across host glibc
    versions, with failures unrelated to our relocation work. The full

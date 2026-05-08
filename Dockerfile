@@ -193,6 +193,7 @@ ARG PYTHON_MINOR
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
+COPY scripts/run-sqlite3-tests.sh /usr/local/bin/run-sqlite3-tests.sh
 RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   PY=${BIN}/python${PYTHON_MINOR} && \
   ${PY} --version && \
@@ -205,10 +206,7 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
     test_uuid test_ssl test_hashlib \
     test_decimal test_dbm test_dbm_gnu test_readline \
     test_curses test_crypt && \
-  ${PY} -m unittest -q \
-    sqlite3.test.dbapi sqlite3.test.types sqlite3.test.factory \
-    sqlite3.test.transactions sqlite3.test.hooks sqlite3.test.regression \
-    sqlite3.test.userfunctions sqlite3.test.dump sqlite3.test.backup && \
+  sh /usr/local/bin/run-sqlite3-tests.sh ${PY} && \
   ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
@@ -231,6 +229,7 @@ RUN apt-get update && \
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
+COPY scripts/run-sqlite3-tests.sh /usr/local/bin/run-sqlite3-tests.sh
 RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   PY=${BIN}/python${PYTHON_MINOR} && \
   ${PY} --version && \
@@ -242,10 +241,7 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
     test_uuid test_ssl test_hashlib \
     test_decimal test_dbm test_dbm_gnu test_readline \
     test_curses test_crypt && \
-  ${PY} -m unittest -q \
-    sqlite3.test.dbapi sqlite3.test.types sqlite3.test.factory \
-    sqlite3.test.transactions sqlite3.test.hooks sqlite3.test.regression \
-    sqlite3.test.userfunctions sqlite3.test.dump sqlite3.test.backup && \
+  sh /usr/local/bin/run-sqlite3-tests.sh ${PY} && \
   ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
@@ -268,6 +264,7 @@ RUN dnf install -y --setopt=install_weak_deps=False ca-certificates libxcrypt-co
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
+COPY scripts/run-sqlite3-tests.sh /usr/local/bin/run-sqlite3-tests.sh
 RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   PY=${BIN}/python${PYTHON_MINOR} && \
   ${PY} --version && \
@@ -279,10 +276,7 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
     test_uuid test_ssl test_hashlib \
     test_decimal test_dbm test_dbm_gnu test_readline \
     test_curses test_crypt && \
-  ${PY} -m unittest -q \
-    sqlite3.test.dbapi sqlite3.test.types sqlite3.test.factory \
-    sqlite3.test.transactions sqlite3.test.hooks sqlite3.test.regression \
-    sqlite3.test.userfunctions sqlite3.test.dump sqlite3.test.backup && \
+  sh /usr/local/bin/run-sqlite3-tests.sh ${PY} && \
   ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
