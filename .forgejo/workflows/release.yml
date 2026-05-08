@@ -47,6 +47,32 @@ jobs:
           echo "python_minor=${PYTHON_MINOR}" >> "$GITHUB_OUTPUT"
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
 
+      - name: Inspect runner CPU (x86-64 microarch level)
+        shell: bash
+        run: |
+          set -u
+          echo "--- uname ---"
+          uname -a
+          echo
+          echo "--- ld.so reported microarch levels ---"
+          for ld in /lib64/ld-linux-x86-64.so.2 /lib/x86_64-linux-gnu/ld-linux-x86-64.so.2; do
+            [ -x "$ld" ] || continue
+            echo "loader: $ld"
+            "$ld" --help 2>&1 | sed -n '/Subdirectories of glibc-hwcaps/,/^$/p' || true
+            break
+          done
+          echo
+          echo "--- /proc/cpuinfo flag check (v2 requires all yes) ---"
+          flags=$(grep -m1 '^flags' /proc/cpuinfo | sed 's/^flags\s*:\s*//')
+          for f in cx16 lahf_lm popcnt pni ssse3 sse4_1 sse4_2; do
+            case " $flags " in *" $f "*) echo "  $f: yes";; *) echo "  $f: NO";; esac
+          done
+          echo
+          echo "--- model / hypervisor ---"
+          grep -m1 'model name' /proc/cpuinfo || true
+          grep -m1 -E 'hypervisor' /proc/cpuinfo >/dev/null && echo "  running under a hypervisor" || echo "  bare metal (no hypervisor flag)"
+          command -v lscpu >/dev/null && lscpu | grep -E 'Model name|Hypervisor|Virtualization' || true
+
       - name: Inspect workspace contents (runner-side)
         shell: bash
         run: |
