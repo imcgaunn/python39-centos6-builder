@@ -120,6 +120,34 @@ RUN cd /tmp && \
   scl enable devtoolset-7 "make install_sw" && \
   cd /tmp && rm -rf openssl-1.1.1w*
 
+# Build libxml2 + libxslt for lxml. CentOS 6 ships libxml2 2.7.6 (2009), far too
+# old to compile a modern lxml against (its etree.c references XML_WITH_ICU /
+# XML_WITH_LZMA, absent in 2.7.6). We build current versions into the prefix as
+# shared libs, exactly like OpenSSL/SQLite above, so relocate.py rewrites their
+# RPATHs and the lxml built against them in the pip stage is bundled and fully
+# relocatable. libxslt is built --without-crypto to avoid a libgcrypt dependency
+# that lxml does not need; iconv comes from glibc, and zlib/lzma from the -devel
+# packages already installed above.
+RUN cd /tmp && \
+  wget https://download.gnome.org/sources/libxml2/2.12/libxml2-2.12.9.tar.xz && \
+  echo "59912db536ab56a3996489ea0299768c7bcffe57169f0235e7f962a91f483590  libxml2-2.12.9.tar.xz" | sha256sum -c - && \
+  tar xJf libxml2-2.12.9.tar.xz && \
+  cd libxml2-2.12.9 && \
+  scl enable devtoolset-7 "./configure --prefix=/opt/python${PYTHON_MINOR} --without-python --with-zlib --with-lzma --disable-static" && \
+  scl enable devtoolset-7 "make -j$(nproc)" && \
+  scl enable devtoolset-7 "make install" && \
+  cd /tmp && rm -rf libxml2-2.12.9*
+
+RUN cd /tmp && \
+  wget https://download.gnome.org/sources/libxslt/1.1/libxslt-1.1.42.tar.xz && \
+  echo "85ca62cac0d41fc77d3f6033da9df6fd73d20ea2fc18b0a3609ffb4110e1baeb  libxslt-1.1.42.tar.xz" | sha256sum -c - && \
+  tar xJf libxslt-1.1.42.tar.xz && \
+  cd libxslt-1.1.42 && \
+  scl enable devtoolset-7 "./configure --prefix=/opt/python${PYTHON_MINOR} --with-libxml-prefix=/opt/python${PYTHON_MINOR} --without-python --without-crypto --disable-static" && \
+  scl enable devtoolset-7 "make -j$(nproc)" && \
+  scl enable devtoolset-7 "make install" && \
+  cd /tmp && rm -rf libxslt-1.1.42*
+
 # Stage 2 - build python using the generated definition
 FROM openssl_sqlite_builder AS python_builder
 ARG PYTHON_VERSION
@@ -131,13 +159,33 @@ RUN scl enable devtoolset-7 "python-build --verbose ${PYTHON_VERSION}-c6-relocat
 # any C extensions pip builds from source against /opt/python${MINOR}/lib.
 # LD_LIBRARY_PATH is set explicitly because the binary's RPATH hasn't been
 # rewritten yet at this point.
+#
+# We source the devtoolset-7 enable script instead of wrapping each command in
+# `scl enable devtoolset-7 "..."`: the wrapper form can swallow the wrapped
+# command's non-zero exit status, so a failed source build (e.g. a C-extension
+# with no glibc-2.12 wheel and unbuildable against CentOS 6's ancient system
+# libs) would sail past this stage and only surface ~250 lines later as a
+# confusing ModuleNotFoundError in a downstream relocated-tarball test stage.
+# Sourcing makes pip's exit code the RUN's exit code, so the build fails here
+# with the real error.
+#
+# PATH is prepended with ${PREFIX}/bin so lxml's build discovers the xml2-config
+# / xslt-config of the libxml2 + libxslt we built into the prefix (there is no
+# system xml2-config — we deliberately did not install libxml2-devel), and links
+# lxml.etree against those shared libs. relocate.py later rewrites its RPATH to
+# ${PREFIX}/lib, so the bundled libxml2/libxslt resolve on the target hosts.
 FROM python_builder AS python_with_packages
 ARG PYTHON_MINOR
 COPY requirements.txt /tmp/requirements.txt
 RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
-  export LD_LIBRARY_PATH="${PREFIX}/lib" && \
-  scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir --upgrade pip" && \
-  scl enable devtoolset-7 "${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r /tmp/requirements.txt" && \
+  . /opt/rh/devtoolset-7/enable && \
+  export PATH="${PREFIX}/bin:${PATH}" && \
+  export LD_LIBRARY_PATH="${PREFIX}/lib:${LD_LIBRARY_PATH}" && \
+  export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig" && \
+  ${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir --upgrade pip && \
+  ${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r /tmp/requirements.txt && \
+  echo "--- verifying every requirement is installed (fail here, not downstream) ---" && \
+  ${PREFIX}/bin/python${PYTHON_MINOR} -c "import re; from importlib.metadata import distributions; have={d.metadata['Name'].lower().replace('_','-') for d in distributions()}; want=[re.split(r'[<>=!~;\[ ]', l.split('#',1)[0].strip())[0] for l in open('/tmp/requirements.txt') if l.split('#',1)[0].strip()]; miss=[w for w in want if w.lower().replace('_','-') not in have]; __import__('sys').exit('ERROR: listed in requirements.txt but not installed: '+', '.join(miss)) if miss else print('verified installed:', ', '.join(want))" && \
   find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
   rm -f /tmp/requirements.txt
 
@@ -211,6 +259,7 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
+  ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)" && \
   ${BIN}/openssl version && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-passed
@@ -246,6 +295,7 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
+  ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)" && \
   ${BIN}/openssl version && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-modern-passed
@@ -281,6 +331,7 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
+  ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)" && \
   ${BIN}/openssl version && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-rocky9-passed
