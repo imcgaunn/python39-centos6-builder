@@ -144,6 +144,8 @@ jobs:
           set -euo pipefail
           apt-get update -qq
           apt-get install -y -qq curl jq
+          auth=(-H "Authorization: token $FORGEJO_TOKEN")
+
           BODY=$(jq -n \
             --arg tag "$TAG" \
             --arg name "Release $TAG" \
@@ -151,10 +153,30 @@ jobs:
             --arg minor "$PYTHON_MINOR" \
             '{tag_name:$tag, name:$name, draft:false, prerelease:false,
               body:"Relocatable Python \($version) for CentOS 6 (glibc 2.12). Includes OpenSSL 1.1.1, SQLite 3.45, full stdlib, pip. Extract anywhere; binaries use $ORIGIN-relative rpath. Use as /opt/python\($minor)/bin/python\($minor)."}')
-          RELEASE_ID=$(curl -fsSL -X POST "$API/releases" \
-            -H "Authorization: token $FORGEJO_TOKEN" \
-            -H "Content-Type: application/json" \
-            -d "$BODY" | jq -r '.id')
+
+          # Create the release; if one already exists for this tag (HTTP 409
+          # on re-runs), fall back to looking it up so the step is idempotent.
+          create=$(curl -sS -o /tmp/rel.json -w '%{http_code}' -X POST "$API/releases" \
+            "${auth[@]}" -H "Content-Type: application/json" -d "$BODY")
+          if [ "$create" = "201" ]; then
+            RELEASE_ID=$(jq -r '.id' /tmp/rel.json)
+          elif [ "$create" = "409" ]; then
+            echo "Release for $TAG already exists; reusing it."
+            RELEASE_ID=$(curl -fsSL "${auth[@]}" "$API/releases/tags/$TAG" | jq -r '.id')
+          else
+            echo "Unexpected status $create creating release:" >&2
+            cat /tmp/rel.json >&2
+            exit 1
+          fi
+
+          # An asset with this name may linger from a prior partial run; the
+          # upload endpoint 409s on a duplicate name, so delete it first.
+          EXISTING_ASSET_ID=$(curl -fsSL "${auth[@]}" "$API/releases/$RELEASE_ID/assets" \
+            | jq -r --arg n "$TARBALL" '.[] | select(.name == $n) | .id' | head -n1)
+          if [ -n "$EXISTING_ASSET_ID" ]; then
+            echo "Deleting existing asset $TARBALL (id $EXISTING_ASSET_ID)."
+            curl -fsSL -X DELETE "${auth[@]}" "$API/releases/$RELEASE_ID/assets/$EXISTING_ASSET_ID"
+          fi
+
           curl -fsSL -X POST "$API/releases/$RELEASE_ID/assets?name=$TARBALL" \
-            -H "Authorization: token $FORGEJO_TOKEN" \
-            -F "attachment=@${TARBALL}"
+            "${auth[@]}" -F "attachment=@${TARBALL}"
