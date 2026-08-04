@@ -13,6 +13,7 @@
 certifi
 requests
 pycryptodome
+pexpect
 # lxml has no manylinux wheel compatible with glibc 2.12, and CentOS 6's system
 # libxml2 (2.7.6) is a decade too old to build a modern lxml against (missing
 # XML_WITH_ICU / XML_WITH_LZMA, etc.). The Dockerfile builds current libxml2 +
