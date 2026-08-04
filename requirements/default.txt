@@ -1,5 +1,13 @@
 # Packages bundled into the relocatable Python tarball.
-# Edit this list and rebuild to change what ships with the distribution.
+#
+# This is the "default" variant: a build with no variant suffix on its tag
+# (e.g. tag v3.10.20, or `./build.sh 3.10.20`) uses this file and produces
+# python<VERSION>-c6-relocatable.tar.gz — today's historical filename.
+#
+# To add another variant, drop a sibling file here named <variant>.txt and
+# tag/build with that variant (e.g. tag v3.10.20+minimal, or
+# `./build.sh 3.10.20+minimal`, uses requirements/minimal.txt and produces
+# python<VERSION>-<variant>-c6-relocatable.tar.gz). See README "Variants".
 #
 # Notes for adding more packages:
 #   - Pure-Python packages "just work" anywhere.

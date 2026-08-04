@@ -1,0 +1,13 @@
+# "minimal" variant: the default bundle without lxml.
+#
+# Built by tagging v<VERSION>+minimal (or `./build.sh <VERSION>+minimal`).
+# Produces python<VERSION>-minimal-c6-relocatable.tar.gz.
+#
+# Because lxml is absent, the bundled-from-source libxml2/libxslt shared libs
+# aren't linked by anything and won't be pulled into the tarball, so this
+# variant ships smaller. (The Dockerfile still compiles libxml2/libxslt in an
+# earlier stage regardless of variant; that's wasted work here but harmless.)
+certifi
+requests
+pycryptodome
+pexpect

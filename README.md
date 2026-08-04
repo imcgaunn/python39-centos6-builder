@@ -14,8 +14,10 @@ This project produces a relocatable CPython tarball that runs on CentOS 6
   `libffi.so.5`, `libuuid.so.1`, `liblzma.so.0`, `libbz2.so.1`) so the
   tarball runs on modern distros too, not just CentOS 6. `libcrypt.so.1`
   is *not* bundled — see "Runtime requirements" below
-- Bundled third-party packages declared in `requirements.txt` (defaults:
-  `certifi`, `requests`, `pycryptodome`)
+- Bundled third-party packages declared in `requirements/<variant>.txt`
+  (the `default` variant ships `certifi`, `requests`, `pycryptodome`,
+  `pexpect`, `lxml`)
+- Multiple bundle variants of the same interpreter version — see "Variants"
 - `_tkinter` is intentionally not built — Tcl/Tk 8.5 (the version on
   CentOS 6) isn't packaged on modern distros and bundling it would pull
   in a large X11 dependency tree. Use a separate Python install if you
@@ -31,10 +33,14 @@ The build needs Docker and the Python version you want to build:
 ./build.sh 3.10.20
 # or via mise:
 mise run build 3.10.20
+# a non-default variant (see "Variants"):
+./build.sh 3.10.20+minimal
 ```
 
 The build runs entirely in the container and takes 10-20 minutes. It
-produces `python<VERSION>-c6-relocatable.tar.gz` in the working directory.
+produces `python<VERSION>-c6-relocatable.tar.gz` in the working directory
+(or `python<VERSION>-<variant>-c6-relocatable.tar.gz` for a non-default
+variant).
 
 ## How version selection works
 
@@ -53,6 +59,35 @@ build time the Dockerfile:
 
 To support a newer Python release that the pinned pyenv doesn't yet know
 about, bump `PYENV_REF` to a tag that ships its definition.
+
+## Variants
+
+A *variant* is a named package bundle for the same interpreter version, so
+you can ship (say) a build with `lxml` and a slimmer one without it from the
+same `3.10.20`. Each variant is one file under `requirements/`:
+
+- `requirements/default.txt` — the default bundle. Builds with no variant
+  keep the historical name `python<VERSION>-c6-relocatable.tar.gz`.
+- `requirements/<variant>.txt` — any other variant. Produces
+  `python<VERSION>-<variant>-c6-relocatable.tar.gz`. `requirements/minimal.txt`
+  ships as a worked example (the default bundle minus `lxml`).
+
+To add a variant, drop a new `requirements/<variant>.txt` and build it.
+
+**Selecting a variant.** The variant travels alongside the version as a
+`+<variant>` suffix, so one interpreter version can have many releases:
+
+| Where | Default | Variant `minimal` |
+|-------|---------|-------------------|
+| Local build | `./build.sh 3.10.20` | `./build.sh 3.10.20+minimal` |
+| Release tag | `v3.10.20` | `v3.10.20+minimal` |
+| Manual workflow run | version `3.10.20`, variant `default` | version `3.10.20`, variant `minimal` |
+
+Pushing the tag `v3.10.20+minimal` builds `requirements/minimal.txt` and
+publishes `python3.10.20-minimal-c6-relocatable.tar.gz` as a distinct
+release from `v3.10.20`. (`+<variant>` is legal in a git tag and is ignored
+by SemVer version ordering, so the two coexist cleanly.) The variant is
+threaded to the Dockerfile via the `VARIANT` build arg.
 
 ## Runtime requirements
 
@@ -119,9 +154,10 @@ base (the two `test_*` stages are the exceptions):
    generates the relocatable build definition, builds OpenSSL 1.1.1w and
    SQLite into `/opt/python<MINOR>`.
 2. `python_builder` — runs `python-build` against the generated definition.
-3. `python_with_packages` — `pip install -r requirements.txt` against the
-   freshly built python, with `LD_LIBRARY_PATH` and devtoolset-7 in scope so
-   any source builds compile correctly. Strips `__pycache__` afterward.
+3. `python_with_packages` — `pip install -r requirements/<VARIANT>.txt`
+   against the freshly built python, with `LD_LIBRARY_PATH` and devtoolset-7
+   in scope so any source builds compile correctly. Strips `__pycache__`
+   afterward.
 4. `python_with_bundled_system_libs` — runs `scripts/bundle-system-libs.sh`,
    which copies the CentOS-6 system shared libs that lib-dynload modules
    and `bin/sqlite3` link against (see Features above) into
@@ -166,8 +202,9 @@ base (the two `test_*` stages are the exceptions):
 
 ## Bundled packages
 
-`requirements.txt` controls which third-party packages get pre-installed
-into the tarball. Edit the file and rebuild to change the bundle.
+`requirements/<variant>.txt` controls which third-party packages get
+pre-installed into the tarball; the build's variant (default `default`)
+picks the file. Edit it and rebuild to change the bundle.
 
 Things to know:
 

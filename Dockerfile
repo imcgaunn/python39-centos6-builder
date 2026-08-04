@@ -3,6 +3,11 @@
 # so it can be used in COPY --from paths (which require build-time literals).
 ARG PYTHON_VERSION=3.10.19
 ARG PYTHON_MINOR=3.10
+# VARIANT selects which requirements/<VARIANT>.txt package list is bundled and
+# whether the tarball name carries a suffix. "default" -> requirements/default.txt
+# and the historical name python<VERSION>-c6-relocatable.tar.gz; any other value
+# -> requirements/<VARIANT>.txt and python<VERSION>-<VARIANT>-c6-relocatable.tar.gz.
+ARG VARIANT=default
 # pyenv is pinned to a release tag so the upstream python-build definitions
 # we consume are reproducible.
 ARG PYENV_REF=v2.6.28
@@ -154,7 +159,7 @@ ARG PYTHON_VERSION
 ARG PYTHON_MINOR
 RUN scl enable devtoolset-7 "python-build --verbose ${PYTHON_VERSION}-c6-relocatable /opt/python${PYTHON_MINOR}"
 
-# Stage 3 - install the bundled pip packages from requirements.txt.
+# Stage 3 - install the bundled pip packages from requirements/<VARIANT>.txt.
 # Runs before patchelf because we want the rpath-rewrite step to also fix
 # any C extensions pip builds from source against /opt/python${MINOR}/lib.
 # LD_LIBRARY_PATH is set explicitly because the binary's RPATH hasn't been
@@ -176,18 +181,21 @@ RUN scl enable devtoolset-7 "python-build --verbose ${PYTHON_VERSION}-c6-relocat
 # ${PREFIX}/lib, so the bundled libxml2/libxslt resolve on the target hosts.
 FROM python_builder AS python_with_packages
 ARG PYTHON_MINOR
-COPY requirements.txt /tmp/requirements.txt
+ARG VARIANT
+COPY requirements/ /tmp/requirements/
 RUN export PREFIX=/opt/python${PYTHON_MINOR} && \
+  export REQ="/tmp/requirements/${VARIANT}.txt" && \
+  if [ ! -f "${REQ}" ]; then echo "ERROR: no requirements file for variant '${VARIANT}' (${REQ} missing)" >&2; exit 1; fi && \
   . /opt/rh/devtoolset-7/enable && \
   export PATH="${PREFIX}/bin:${PATH}" && \
   export LD_LIBRARY_PATH="${PREFIX}/lib:${LD_LIBRARY_PATH}" && \
   export PKG_CONFIG_PATH="${PREFIX}/lib/pkgconfig" && \
   ${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir --upgrade pip && \
-  ${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r /tmp/requirements.txt && \
+  ${PREFIX}/bin/pip${PYTHON_MINOR} install --no-cache-dir -r "${REQ}" && \
   echo "--- verifying every requirement is installed (fail here, not downstream) ---" && \
-  ${PREFIX}/bin/python${PYTHON_MINOR} -c "import re; from importlib.metadata import distributions; have={d.metadata['Name'].lower().replace('_','-') for d in distributions()}; want=[re.split(r'[<>=!~;\[ ]', l.split('#',1)[0].strip())[0] for l in open('/tmp/requirements.txt') if l.split('#',1)[0].strip()]; miss=[w for w in want if w.lower().replace('_','-') not in have]; __import__('sys').exit('ERROR: listed in requirements.txt but not installed: '+', '.join(miss)) if miss else print('verified installed:', ', '.join(want))" && \
+  ${PREFIX}/bin/python${PYTHON_MINOR} -c "import re,os; from importlib.metadata import distributions; have={d.metadata['Name'].lower().replace('_','-') for d in distributions()}; req=os.environ['REQ']; want=[re.split(r'[<>=!~;\[ ]', l.split('#',1)[0].strip())[0] for l in open(req) if l.split('#',1)[0].strip()]; miss=[w for w in want if w.lower().replace('_','-') not in have]; __import__('sys').exit('ERROR: listed in '+req+' but not installed: '+', '.join(miss)) if miss else print('verified installed:', ', '.join(want))" && \
   find ${PREFIX} -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true && \
-  rm -f /tmp/requirements.txt
+  rm -rf /tmp/requirements
 
 # Stage 4 - bundle CentOS-6-only system shared libraries into the prefix.
 # Several lib-dynload modules (readline, _curses, _gdbm, _ctypes, _uuid)
@@ -342,9 +350,15 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
 FROM patch_to_make_relocatable AS final_archive_env
 ARG PYTHON_VERSION
 ARG PYTHON_MINOR
+ARG VARIANT=default
 COPY --from=test_relocatable /tmp/relocatable-tests-passed /tmp/relocatable-tests-passed
 COPY --from=test_relocatable_modern /tmp/relocatable-tests-modern-passed /tmp/relocatable-tests-modern-passed
 COPY --from=test_relocatable_rocky9 /tmp/relocatable-tests-rocky9-passed /tmp/relocatable-tests-rocky9-passed
+# Default variant keeps the historical name (no suffix); any other variant adds
+# a "-<VARIANT>" token. build.sh and the release workflows compute the same name
+# so their extraction step finds this file.
 RUN cd /opt && \
-  tar -czf python${PYTHON_VERSION}-c6-relocatable.tar.gz python${PYTHON_MINOR} && \
-  echo "python build complete - tar created at /opt/python${PYTHON_VERSION}-c6-relocatable.tar.gz"
+  if [ "${VARIANT}" = "default" ]; then SUFFIX=""; else SUFFIX="-${VARIANT}"; fi && \
+  TARBALL="python${PYTHON_VERSION}${SUFFIX}-c6-relocatable.tar.gz" && \
+  tar -czf "${TARBALL}" python${PYTHON_MINOR} && \
+  echo "python build complete - tar created at /opt/${TARBALL}"

@@ -10,6 +10,11 @@ on:
         description: "Python version to build (e.g. 3.10.20). Required for manual runs."
         required: true
         type: string
+      variant:
+        description: "Build variant (selects requirements/<variant>.txt). 'default' keeps the historical tarball name."
+        required: false
+        default: "default"
+        type: string
 
 env:
   IMAGE_REF: registry:5000/py-c6-builder
@@ -33,18 +38,34 @@ jobs:
           set -euo pipefail
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             PYTHON_VERSION="${{ inputs.python_version }}"
+            VARIANT="${{ inputs.variant }}"
           else
-            # Tag is the source of truth on push events: vX.Y.Z -> X.Y.Z
-            PYTHON_VERSION="${GITHUB_REF_NAME#v}"
+            # Tag is the source of truth on push events. Grammar:
+            #   vX.Y.Z            -> version X.Y.Z, variant "default"
+            #   vX.Y.Z+<variant>  -> version X.Y.Z, variant <variant>
+            RAW="${GITHUB_REF_NAME#v}"
+            PYTHON_VERSION="${RAW%%+*}"
+            if [ "${RAW}" = "${PYTHON_VERSION}" ]; then VARIANT="default"; else VARIANT="${RAW#*+}"; fi
           fi
+          VARIANT="${VARIANT:-default}"
           if ! [[ "${PYTHON_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Resolved PYTHON_VERSION '${PYTHON_VERSION}' is not MAJOR.MINOR.PATCH" >&2
             exit 1
           fi
+          if ! [[ "${VARIANT}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "Resolved VARIANT '${VARIANT}' has unexpected characters" >&2
+            exit 1
+          fi
+          if [ ! -f "requirements/${VARIANT}.txt" ]; then
+            echo "Unknown variant '${VARIANT}': requirements/${VARIANT}.txt does not exist" >&2
+            exit 1
+          fi
           PYTHON_MINOR="${PYTHON_VERSION%.*}"
-          TARBALL="python${PYTHON_VERSION}-c6-relocatable.tar.gz"
+          if [ "${VARIANT}" = "default" ]; then SUFFIX=""; else SUFFIX="-${VARIANT}"; fi
+          TARBALL="python${PYTHON_VERSION}${SUFFIX}-c6-relocatable.tar.gz"
           echo "python_version=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
           echo "python_minor=${PYTHON_MINOR}" >> "$GITHUB_OUTPUT"
+          echo "variant=${VARIANT}" >> "$GITHUB_OUTPUT"
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
 
       - name: Inspect runner CPU (x86-64 microarch level)
@@ -106,9 +127,10 @@ jobs:
           args: >-
             --context=dir://${{ github.workspace }}
             --dockerfile=Dockerfile
-            --destination=${{ env.IMAGE_REF }}:${{ github.sha }}
+            --destination=${{ env.IMAGE_REF }}:${{ github.sha }}-${{ steps.ver.outputs.variant }}
             --build-arg=PYTHON_VERSION=${{ steps.ver.outputs.python_version }}
             --build-arg=PYTHON_MINOR=${{ steps.ver.outputs.python_minor }}
+            --build-arg=VARIANT=${{ steps.ver.outputs.variant }}
             --insecure
             --skip-tls-verify
             --single-snapshot
@@ -117,7 +139,7 @@ jobs:
       - name: Export flattened image with crane
         uses: docker://gcr.io/go-containerregistry/crane:debug
         with:
-          args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }} ${{ github.workspace }}/image.tar
+          args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }}-${{ steps.ver.outputs.variant }} ${{ github.workspace }}/image.tar
 
       - name: Extract python tarball from image
         shell: bash
@@ -139,6 +161,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           PYTHON_VERSION: ${{ steps.ver.outputs.python_version }}
           PYTHON_MINOR: ${{ steps.ver.outputs.python_minor }}
+          VARIANT: ${{ steps.ver.outputs.variant }}
           TARBALL: ${{ steps.ver.outputs.tarball }}
         run: |
           set -euo pipefail
@@ -151,8 +174,9 @@ jobs:
             --arg name "Release $TAG" \
             --arg version "$PYTHON_VERSION" \
             --arg minor "$PYTHON_MINOR" \
+            --arg variant "$VARIANT" \
             '{tag_name:$tag, name:$name, draft:false, prerelease:false,
-              body:"Relocatable Python \($version) for CentOS 6 (glibc 2.12). Includes OpenSSL 1.1.1, SQLite 3.45, full stdlib, pip. Extract anywhere; binaries use $ORIGIN-relative rpath. Use as /opt/python\($minor)/bin/python\($minor)."}')
+              body:"Relocatable Python \($version) (variant: \($variant)) for CentOS 6 (glibc 2.12). Includes OpenSSL 1.1.1, SQLite 3.45, full stdlib, pip. Extract anywhere; binaries use $ORIGIN-relative rpath. Use as /opt/python\($minor)/bin/python\($minor)."}')
 
           # Create the release; if one already exists for this tag (HTTP 409
           # on re-runs), fall back to looking it up so the step is idempotent.
