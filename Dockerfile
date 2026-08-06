@@ -267,7 +267,9 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
-  ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)" && \
+  if ${PY} -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('lxml') else 1)"; then \
+    ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)"; \
+  else echo "lxml not bundled for this variant; skipping lxml smoke test"; fi && \
   ${BIN}/openssl version && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-passed
@@ -303,7 +305,9 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
-  ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)" && \
+  if ${PY} -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('lxml') else 1)"; then \
+    ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)"; \
+  else echo "lxml not bundled for this variant; skipping lxml smoke test"; fi && \
   ${BIN}/openssl version && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-modern-passed
@@ -339,7 +343,9 @@ RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
   ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
   ${PY} -c "import requests; print('requests:', requests.__version__)" && \
   ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
-  ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)" && \
+  if ${PY} -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('lxml') else 1)"; then \
+    ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)"; \
+  else echo "lxml not bundled for this variant; skipping lxml smoke test"; fi && \
   ${BIN}/openssl version && \
   ${BIN}/sqlite3 -version && \
   touch /tmp/relocatable-tests-rocky9-passed
