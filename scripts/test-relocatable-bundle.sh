@@ -284,6 +284,15 @@ if [ "${SKIP_THIRDPARTY}" -eq 0 ]; then
     echo
     echo "----- lxml not bundled for this variant, skipping"
   fi
+  # cryptography ships as a self-contained abi3 wheel with its own OpenSSL, so
+  # importing hazmat primitives confirms the wheel loads and functions. Only
+  # some variants bundle it, so probe with find_spec first and skip cleanly.
+  if "${PY}" -c "import importlib.util, sys; sys.exit(0 if importlib.util.find_spec('cryptography') else 1)"; then
+    check cryptography "${PY}" -c "import cryptography; from cryptography.hazmat.backends import default_backend; from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes; import os; c=Cipher(algorithms.AES(os.urandom(32)), modes.CBC(os.urandom(16)), backend=default_backend()).encryptor(); c.update(b'0'*16); c.finalize(); print('cryptography OK:', cryptography.__version__)"
+  else
+    echo
+    echo "----- cryptography not bundled for this variant, skipping"
+  fi
 else
   echo
   echo "----- third-party smoke checks skipped (--skip-thirdparty)"
