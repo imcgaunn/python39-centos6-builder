@@ -20,16 +20,11 @@ permissions:
   contents: write
 
 env:
-  IMAGE_REF: registry:5000/py-c6-builder
+  IMAGE_REF: py-c6-builder
 
 jobs:
   build-and-release:
     runs-on: ubuntu-latest
-    services:
-      registry:
-        image: registry:2
-        ports:
-          - 5000:5000
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -124,25 +119,20 @@ jobs:
             ls -la ${{ github.workspace }} 2>&1 || echo MISSING;
             "
 
-      - name: Build image with kaniko
+      - name: Build image and export tarball with kaniko
         uses: docker://gcr.io/kaniko-project/executor:debug
         with:
           args: >-
             --context=dir:///github/workspace
             --dockerfile=Dockerfile
             --destination=${{ env.IMAGE_REF }}:${{ github.sha }}-${{ steps.ver.outputs.variant }}
+            --no-push
+            --tarPath=${{ github.workspace }}/image.tar
             --build-arg=PYTHON_VERSION=${{ steps.ver.outputs.python_version }}
             --build-arg=PYTHON_MINOR=${{ steps.ver.outputs.python_minor }}
             --build-arg=VARIANT=${{ steps.ver.outputs.variant }}
-            --insecure
-            --skip-tls-verify
             --single-snapshot
             --use-new-run
-
-      - name: Export flattened image with crane
-        uses: docker://gcr.io/go-containerregistry/crane:debug
-        with:
-          args: --insecure export ${{ env.IMAGE_REF }}:${{ github.sha }}-${{ steps.ver.outputs.variant }} ${{ github.workspace }}/image.tar
 
       - name: Extract python tarball from image
         shell: bash
@@ -150,9 +140,27 @@ jobs:
           TARBALL: ${{ steps.ver.outputs.tarball }}
         run: |
           set -euo pipefail
-          tar -xf image.tar "opt/${TARBALL}"
+          # kaniko wrote a docker-format image tarball (image.tar) instead of
+          # pushing to a registry. The python tarball we want lives at
+          # opt/${TARBALL} inside the image's top layer; unpack the image and
+          # pull that one file out of whichever layer blob holds it. No
+          # registry, crane, or JSON tooling required.
+          mkdir -p _image
+          tar -xf image.tar -C _image
+          found=""
+          while IFS= read -r blob; do
+            if tar -tf "$blob" "opt/${TARBALL}" >/dev/null 2>&1; then
+              tar -xf "$blob" -C . "opt/${TARBALL}"
+              found=1
+              break
+            fi
+          done < <(find _image -type f ! -name '*.json')
+          if [ -z "$found" ]; then
+            echo "Could not find opt/${TARBALL} in any image layer" >&2
+            exit 1
+          fi
           mv "opt/${TARBALL}" .
-          rm -rf opt image.tar
+          rm -rf opt _image image.tar
           ls -lh "${TARBALL}"
 
       - name: Create release and upload asset
