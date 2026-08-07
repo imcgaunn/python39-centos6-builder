@@ -69,8 +69,12 @@ same `3.10.20`. Each variant is one file under `requirements/`:
 - `requirements/default.txt` — the default bundle. Builds with no variant
   keep the historical name `python<VERSION>-c6-relocatable.tar.gz`.
 - `requirements/<variant>.txt` — any other variant. Produces
-  `python<VERSION>-<variant>-c6-relocatable.tar.gz`. `requirements/minimal.txt`
-  ships as a worked example (the default bundle minus `lxml`).
+  `python<VERSION>-<variant>-c6-relocatable.tar.gz`. Two variants ship as
+  worked examples: `requirements/minimal.txt` (the default bundle minus
+  `lxml`) and `requirements/cryptography.txt` (the default bundle plus
+  `cryptography==37.0.4`, the last release with a glibc-2.12 `abi3` wheel that
+  installs on CentOS 6 with no Rust toolchain — see the file's header for why
+  the pin matters).
 
 To add a variant, drop a new `requirements/<variant>.txt` and build it.
 

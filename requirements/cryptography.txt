@@ -1,0 +1,23 @@
+# "cryptography" variant: the default bundle plus pyca/cryptography.
+#
+# Built by tagging v<VERSION>+cryptography (or `./build.sh <VERSION>+cryptography`).
+# Produces python<VERSION>-cryptography-c6-relocatable.tar.gz.
+#
+# cryptography is pinned to 37.0.4 on purpose: it is the last release that
+# ships a glibc-2.12 wheel
+# (cryptography-37.0.4-cp36-abi3-manylinux_2_12_x86_64.manylinux2010_x86_64.whl).
+# That wheel is a stable-ABI (abi3) build valid for CPython 3.6+, so it covers
+# every interpreter this project produces, and it statically bundles its own
+# OpenSSL -- so pip installs it directly on CentOS 6 with no source build, no
+# Rust toolchain, and no dependency on the prefix's OpenSSL 1.1.1w.
+#
+# Do NOT bump this to 38.0.0+: those releases dropped manylinux2010, ship only
+# manylinux_2_17 (glibc 2.17 / CentOS 7) wheels, and would fall back to a
+# from-source build that needs a Rust toolchain the CentOS 6 image doesn't have
+# (and current rustc no longer runs on glibc 2.12 anyway).
+certifi
+requests
+pycryptodome
+pexpect
+cryptography==37.0.4
+lxml
