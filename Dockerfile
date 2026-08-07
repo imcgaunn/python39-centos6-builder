@@ -249,29 +249,12 @@ ARG PYTHON_MINOR
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
-COPY scripts/run-sqlite3-tests.sh /usr/local/bin/run-sqlite3-tests.sh
-RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
-  PY=${BIN}/python${PYTHON_MINOR} && \
-  ${PY} --version && \
-  ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-  ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-  ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-  ${PY} -c "import sys; print('Platform:', sys.platform)" && \
-  TERM=xterm ${PY} -m test -j$(nproc) --quiet \
-    test_lzma test_bz2 test_zlib \
-    test_uuid test_ssl test_hashlib \
-    test_decimal test_dbm test_dbm_gnu test_readline \
-    test_curses test_crypt && \
-  sh /usr/local/bin/run-sqlite3-tests.sh ${PY} && \
-  ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
-  ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
-  ${PY} -c "import requests; print('requests:', requests.__version__)" && \
-  ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
-  if ${PY} -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('lxml') else 1)"; then \
-    ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)"; \
-  else echo "lxml not bundled for this variant; skipping lxml smoke test"; fi && \
-  ${BIN}/openssl version && \
-  ${BIN}/sqlite3 -version && \
+COPY scripts/test-relocatable-bundle.sh /usr/local/bin/test-relocatable-bundle.sh
+# --in-place because the COPY above already put the prefix at a path the
+# build never saw, which is the relocation the suite exists to test; letting
+# the script copy it again would only cost time.
+RUN sh /usr/local/bin/test-relocatable-bundle.sh --in-place \
+    /opt/very/relocated/python${PYTHON_MINOR} && \
   touch /tmp/relocatable-tests-passed
 
 # Stage 7 - second verification on a current Ubuntu LTS. Catches regressions
@@ -288,28 +271,9 @@ RUN apt-get update && \
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
-COPY scripts/run-sqlite3-tests.sh /usr/local/bin/run-sqlite3-tests.sh
-RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
-  PY=${BIN}/python${PYTHON_MINOR} && \
-  ${PY} --version && \
-  ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-  ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-  ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-  TERM=xterm ${PY} -m test -j$(nproc) --quiet \
-    test_lzma test_bz2 test_zlib \
-    test_uuid test_ssl test_hashlib \
-    test_decimal test_dbm test_dbm_gnu test_readline \
-    test_curses test_crypt && \
-  sh /usr/local/bin/run-sqlite3-tests.sh ${PY} && \
-  ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
-  ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
-  ${PY} -c "import requests; print('requests:', requests.__version__)" && \
-  ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
-  if ${PY} -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('lxml') else 1)"; then \
-    ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)"; \
-  else echo "lxml not bundled for this variant; skipping lxml smoke test"; fi && \
-  ${BIN}/openssl version && \
-  ${BIN}/sqlite3 -version && \
+COPY scripts/test-relocatable-bundle.sh /usr/local/bin/test-relocatable-bundle.sh
+RUN sh /usr/local/bin/test-relocatable-bundle.sh --in-place \
+    /opt/very/relocated/python${PYTHON_MINOR} && \
   touch /tmp/relocatable-tests-modern-passed
 
 # Stage 8 - third verification on Rocky Linux 9, which is one of the
@@ -326,28 +290,9 @@ RUN dnf install -y --setopt=install_weak_deps=False ca-certificates libxcrypt-co
 RUN mkdir -p /opt/very/relocated
 WORKDIR /opt/very/relocated
 COPY --from=patch_to_make_relocatable /opt/python${PYTHON_MINOR} /opt/very/relocated/python${PYTHON_MINOR}
-COPY scripts/run-sqlite3-tests.sh /usr/local/bin/run-sqlite3-tests.sh
-RUN BIN=/opt/very/relocated/python${PYTHON_MINOR}/bin && \
-  PY=${BIN}/python${PYTHON_MINOR} && \
-  ${PY} --version && \
-  ${PY} -c "import ssl; print('OpenSSL:', ssl.OPENSSL_VERSION)" && \
-  ${PY} -c "import sqlite3; print('SQLite:', sqlite3.sqlite_version)" && \
-  ${PY} -c "import zlib; print('zlib:', zlib.ZLIB_VERSION)" && \
-  TERM=xterm ${PY} -m test -j$(nproc) --quiet \
-    test_lzma test_bz2 test_zlib \
-    test_uuid test_ssl test_hashlib \
-    test_decimal test_dbm test_dbm_gnu test_readline \
-    test_curses test_crypt && \
-  sh /usr/local/bin/run-sqlite3-tests.sh ${PY} && \
-  ${PY} -c "import ctypes; libc=ctypes.CDLL('libc.so.6'); libc.getpid.restype=ctypes.c_int; assert libc.getpid() > 0; print('ctypes via libffi: OK')" && \
-  ${PY} -c "import certifi; print('certifi:', certifi.where())" && \
-  ${PY} -c "import requests; print('requests:', requests.__version__)" && \
-  ${PY} -c "from Crypto.Cipher import AES; print('pycryptodome AES: OK')" && \
-  if ${PY} -c "import importlib.util,sys; sys.exit(0 if importlib.util.find_spec('lxml') else 1)"; then \
-    ${PY} -c "import lxml.etree as e; print('lxml OK:', e.LXML_VERSION, 'libxml2:', e.LIBXML_VERSION)"; \
-  else echo "lxml not bundled for this variant; skipping lxml smoke test"; fi && \
-  ${BIN}/openssl version && \
-  ${BIN}/sqlite3 -version && \
+COPY scripts/test-relocatable-bundle.sh /usr/local/bin/test-relocatable-bundle.sh
+RUN sh /usr/local/bin/test-relocatable-bundle.sh --in-place \
+    /opt/very/relocated/python${PYTHON_MINOR} && \
   touch /tmp/relocatable-tests-rocky9-passed
 
 # Stage 9 (final) - build the release tarball. Pulls a marker file from each

@@ -145,6 +145,45 @@ readelf -d /opt/python3.10/bin/python3.10 | grep RPATH
 # Should show: $ORIGIN/../lib
 ```
 
+## Validating a bundle
+
+`scripts/test-relocatable-bundle.sh` is the validation suite the build's
+three `test_*` stages run, usable on its own against any bundle on any
+host — including bundles this project didn't build. It depends on nothing
+else in the repo, so it can be copied to a target machine by itself.
+
+```bash
+# a release tarball
+./scripts/test-relocatable-bundle.sh python3.10.20-c6-relocatable.tar.gz
+
+# an already-extracted prefix
+./scripts/test-relocatable-bundle.sh /opt/python3.10
+```
+
+It accepts a `.tar.gz` or an extracted prefix directory and figures out the
+minor series from `bin/python3.*`. A directory is copied to a temp path
+before testing so that relocation is genuinely exercised; `--in-place`
+skips the copy. `PYTHONPATH`, `PYTHONHOME` and `LD_LIBRARY_PATH` are
+cleared first — an inherited `LD_LIBRARY_PATH` could satisfy a soname the
+bundle failed to ship, hiding the exact class of bug the suite exists to
+find.
+
+Every check runs even after an earlier one fails, and the summary lists
+each by name, so one run tells you everything that's wrong. Exit status is
+0 only if all checks pass.
+
+Useful flags:
+
+| Flag | Effect |
+| --- | --- |
+| `--in-place` | test an extracted prefix where it sits, no relocation copy |
+| `--skip-thirdparty` | skip the `certifi` / `requests` / `pycryptodome` checks, for bundles that don't ship this project's `requirements.txt` |
+| `--workdir <dir>` | stage under `<dir>` instead of a `mktemp` path |
+| `--keep` | leave the staging directory behind for inspection |
+| `--jobs <n>` | parallelism for the stdlib suite (default `nproc`) |
+
+`bin/openssl` and `bin/sqlite3` are checked only if the bundle ships them.
+
 ## Build pipeline
 
 The Dockerfile chains the following stages from a CentOS 6 + devtoolset-7
@@ -169,15 +208,16 @@ base (the two `test_*` stages are the exceptions):
    lib-dynload, bundled libs, freshly bundled system libs, and
    pip-installed C extensions), and rewrites `bin/*` shebangs.
 6. `test_relocatable` — copies the patched install to a fresh path on a
-   CentOS 6 host and runs CPython's own stdlib regression suite (via
+   CentOS 6 host and runs `scripts/test-relocatable-bundle.sh` against it
+   (with `--in-place`, since the stage's `COPY` already did the
+   relocating). That script runs CPython's own stdlib regression suite (via
    `python -m test`) against the C extensions whose NEEDED entries point
    at bundled libs: `test_lzma`, `test_bz2`, `test_zlib`, `test_uuid`,
    `test_ssl`, `test_hashlib`, `test_decimal`, `test_dbm`, `test_dbm_gnu`,
    `test_readline`, `test_curses`, `test_crypt`. sqlite3 tests are
-   dispatched by `scripts/run-sqlite3-tests.sh`, which detects the
-   layout (3.10 keeps them in `sqlite3.test.*`; 3.11+ moved them to
-   `test.test_sqlite3`) and uses `python -m unittest` or `python -m test`
-   accordingly. ctypes is exercised by a focused
+   dispatched by detecting the layout (3.10 keeps them in `sqlite3.test.*`;
+   3.11+ moved them to `test.test_sqlite3`) and using `python -m unittest`
+   or `python -m test` accordingly. ctypes is exercised by a focused
    `CDLL('libc.so.6') + libc.getpid()` smoke that proves libffi works
    through ctypes — `test_ctypes` itself is too noisy across host glibc
    versions, with failures unrelated to our relocation work. The full

@@ -128,7 +128,7 @@ jobs:
         uses: docker://gcr.io/kaniko-project/executor:debug
         with:
           args: >-
-            --context=dir://${{ github.workspace }}
+            --context=dir:///github/workspace
             --dockerfile=Dockerfile
             --destination=${{ env.IMAGE_REF }}:${{ github.sha }}-${{ steps.ver.outputs.variant }}
             --build-arg=PYTHON_VERSION=${{ steps.ver.outputs.python_version }}
