@@ -125,7 +125,7 @@ jobs:
             --dockerfile=Dockerfile
             --destination=${{ env.IMAGE_REF }}:${{ github.sha }}-${{ steps.ver.outputs.variant }}
             --no-push
-            --tarPath=${{ github.workspace }}/image.tar
+            --tarPath=/github/workspace/image.tar
             --build-arg=PYTHON_VERSION=${{ steps.ver.outputs.python_version }}
             --build-arg=PYTHON_MINOR=${{ steps.ver.outputs.python_minor }}
             --build-arg=VARIANT=${{ steps.ver.outputs.variant }}
