@@ -1,13 +1,10 @@
 name: Build and Release Python Tarball (GitHub)
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       python_version:
-        description: "Python version to build (e.g. 3.10.20). Required for manual runs."
+        description: "Python version to build (e.g. 3.10.20)."
         required: true
         type: string
       variant:
@@ -15,6 +12,11 @@ on:
         required: false
         default: "default"
         type: string
+      release:
+        description: "Create a GitHub release and upload the tarball. Leave unchecked to build only."
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: write
@@ -34,17 +36,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            PYTHON_VERSION="${{ inputs.python_version }}"
-            VARIANT="${{ inputs.variant }}"
-          else
-            # Tag is the source of truth on push events. Grammar:
-            #   vX.Y.Z            -> version X.Y.Z, variant "default"
-            #   vX.Y.Z+<variant>  -> version X.Y.Z, variant <variant>
-            RAW="${GITHUB_REF_NAME#v}"
-            PYTHON_VERSION="${RAW%%+*}"
-            if [ "${RAW}" = "${PYTHON_VERSION}" ]; then VARIANT="default"; else VARIANT="${RAW#*+}"; fi
-          fi
+          PYTHON_VERSION="${{ inputs.python_version }}"
+          VARIANT="${{ inputs.variant }}"
           VARIANT="${VARIANT:-default}"
           if ! [[ "${PYTHON_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "Resolved PYTHON_VERSION '${PYTHON_VERSION}' is not MAJOR.MINOR.PATCH" >&2
@@ -61,10 +54,15 @@ jobs:
           PYTHON_MINOR="${PYTHON_VERSION%.*}"
           if [ "${VARIANT}" = "default" ]; then SUFFIX=""; else SUFFIX="-${VARIANT}"; fi
           TARBALL="python${PYTHON_VERSION}${SUFFIX}-c6-relocatable.tar.gz"
+          # Release tag grammar:
+          #   vX.Y.Z            -> variant "default"
+          #   vX.Y.Z+<variant>  -> variant <variant>
+          if [ "${VARIANT}" = "default" ]; then TAG="v${PYTHON_VERSION}"; else TAG="v${PYTHON_VERSION}+${VARIANT}"; fi
           echo "python_version=${PYTHON_VERSION}" >> "$GITHUB_OUTPUT"
           echo "python_minor=${PYTHON_MINOR}" >> "$GITHUB_OUTPUT"
           echo "variant=${VARIANT}" >> "$GITHUB_OUTPUT"
           echo "tarball=${TARBALL}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Inspect runner CPU (x86-64 microarch level)
         shell: bash
@@ -164,11 +162,11 @@ jobs:
           ls -lh "${TARBALL}"
 
       - name: Create release and upload asset
-        if: github.event_name == 'push'
+        if: ${{ inputs.release }}
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ steps.ver.outputs.tag }}
           PYTHON_VERSION: ${{ steps.ver.outputs.python_version }}
           PYTHON_MINOR: ${{ steps.ver.outputs.python_minor }}
           VARIANT: ${{ steps.ver.outputs.variant }}
